@@ -13,7 +13,7 @@ def load_vehicle_snapshots() -> pd.DataFrame:
         "ORDER BY vehicle_id, observed_at",
         conn,
     )
-    df["observed_at"] = pd.to_datetime(df["observed_at"], utc=True)
+    df["observed_at"] = pd.to_datetime(df["observed_at"], utc=True, format="ISO8601")
     return df
 
 
