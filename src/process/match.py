@@ -6,6 +6,11 @@ from src import config, db
 CANCELLED_STATES = {"CANCELLED", "SKIPPED"}
 
 
+def exclude_cancelled(predictions: pd.DataFrame) -> pd.DataFrame:
+    """drop predictions MBTA flagged as not happening"""
+    return predictions[~predictions["schedule_relationship"].isin(CANCELLED_STATES)]
+
+
 def load_actual_arrivals() -> pd.DataFrame:
     conn = db.connect()
     df = pd.read_sql_query(
@@ -25,7 +30,7 @@ def load_predictions() -> pd.DataFrame:
         "WHERE predicted_arrival IS NOT NULL",
         conn,
     )
-    df = df[~df["schedule_relationship"].isin(CANCELLED_STATES)]
+    df = exclude_cancelled(df)
     df["observed_at"] = pd.to_datetime(df["observed_at"], utc=True, format="ISO8601")
     df["predicted_arrival"] = pd.to_datetime(df["predicted_arrival"], utc=True, format="ISO8601")
     return df
