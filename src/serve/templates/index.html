@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MBTA Prediction Corrector</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #2a2e38;
+    --text: #e8e9ec;
+    --muted: #9aa0ab;
+    --red: #DA291C;
+    --orange: #ED8B00;
+    --green: #2e7d32;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 2rem 1rem 4rem;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  p.sub { color: var(--muted); margin-top: 0; margin-bottom: 2rem; font-size: 0.95rem; }
+  .controls {
+    display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1rem;
+  }
+  select, button {
+    background: #1f232c; color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.55rem 0.75rem; font-size: 0.95rem;
+  }
+  select { flex: 1; min-width: 200px; }
+  button {
+    background: var(--red); border-color: var(--red); color: white;
+    font-weight: 600; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { color: var(--muted); margin-top: 1rem; font-size: 0.9rem; min-height: 1.2em; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
+  th, td { text-align: left; padding: 0.6rem 0.5rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 0.85rem; text-transform: uppercase; }
+  .raw { color: var(--muted); }
+  .corrected { font-weight: 600; }
+  .adj-later { color: var(--orange); }
+  .adj-earlier { color: var(--green); }
+  .badge {
+    font-size: 0.75rem; color: var(--muted); background: #1f232c;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 0.1rem 0.5rem; margin-left: 0.4rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MBTA Prediction Corrector</h1>
+  <p class="sub">
+    Pick a Red/Orange Line stop. See the MBTA's live prediction next to a
+    bias-corrected estimate, learned from historical prediction accuracy at
+    that exact stop.
+  </p>
+
+  <div class="controls">
+    <select id="stopSelect"><option>Loading stops...</option></select>
+    <button id="goBtn" disabled>Get predictions</button>
+  </div>
+  <div id="status"></div>
+
+  <table id="resultsTable" style="display:none">
+    <thead>
+      <tr><th>Route</th><th>MBTA says</th><th>Corrected</th><th>Adjustment</th></tr>
+    </thead>
+    <tbody id="resultsBody"></tbody>
+  </table>
+</div>
+
+<script>
+const stopSelect = document.getElementById('stopSelect');
+const goBtn = document.getElementById('goBtn');
+const statusEl = document.getElementById('status');
+const table = document.getElementById('resultsTable');
+const tbody = document.getElementById('resultsBody');
+
+fetch('/api/stops')
+  .then(r => r.json())
+  .then(stops => {
+    stopSelect.innerHTML = '';
+    for (const s of stops) {
+      const opt = document.createElement('option');
+      opt.value = JSON.stringify({ stop_id: s.stop_id, route_id: s.route_id });
+      opt.textContent = `${s.stop_name} (${s.route_id})`;
+      stopSelect.appendChild(opt);
+    }
+    goBtn.disabled = false;
+  })
+  .catch(() => { statusEl.textContent = 'Failed to load stop list.'; });
+
+goBtn.addEventListener('click', () => {
+  const { stop_id, route_id } = JSON.parse(stopSelect.value);
+  goBtn.disabled = true;
+  statusEl.textContent = 'Fetching live predictions...';
+  table.style.display = 'none';
+
+  fetch(`/api/predict?stop_id=${encodeURIComponent(stop_id)}&route_id=${encodeURIComponent(route_id)}`)
+    .then(r => r.json())
+    .then(data => {
+      goBtn.disabled = false;
+      if (data.error) {
+        statusEl.textContent = `Error: ${data.error}`;
+        return;
+      }
+      if (!data.predictions.length) {
+        statusEl.textContent = 'No live predictions right now for this stop.';
+        return;
+      }
+      statusEl.textContent = `${data.predictions.length} live prediction(s), just fetched.`;
+      tbody.innerHTML = '';
+      for (const p of data.predictions) {
+        const tr = document.createElement('tr');
+        const adjClass = p.adjustment_sec > 0 ? 'adj-later' : (p.adjustment_sec < 0 ? 'adj-earlier' : '');
+        tr.innerHTML = `
+          <td>${p.route_id}</td>
+          <td class="raw">${p.raw_min.toFixed(1)} min</td>
+          <td class="corrected">${p.corrected_min.toFixed(1)} min</td>
+          <td class="${adjClass}">${p.adjustment_sec > 0 ? '+' : ''}${p.adjustment_sec}s
+            <span class="badge">${p.confidence}</span></td>
+        `;
+        tbody.appendChild(tr);
+      }
+      table.style.display = '';
+    })
+    .catch(() => {
+      goBtn.disabled = false;
+      statusEl.textContent = 'Request failed.';
+    });
+});
+</script>
+</body>
+</html>
