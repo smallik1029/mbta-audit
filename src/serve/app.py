@@ -2,11 +2,14 @@
 import pandas as pd
 from flask import Flask, jsonify, render_template, request
 
-from src import db
+from src import config, db
 from src.serve.correction import get_corrected_predictions, load_lookup
+from src.serve.live_map import ScheduleIndex, build_live_trains, load_shapes
 
 app = Flask(__name__)
 _lookup = None
+_schedule = None
+_shapes = None
 
 
 def lookup() -> dict:
@@ -16,9 +19,42 @@ def lookup() -> dict:
     return _lookup
 
 
+def schedule() -> ScheduleIndex:
+    global _schedule
+    if _schedule is None:
+        _schedule = ScheduleIndex()
+    return _schedule
+
+
+def shapes() -> dict:
+    global _shapes
+    if _shapes is None:
+        _shapes = load_shapes()
+    return _shapes
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/map")
+def map_page():
+    return render_template("map.html")
+
+
+@app.route("/api/shapes")
+def api_shapes():
+    return jsonify(shapes())
+
+
+@app.route("/api/live_map")
+def api_live_map():
+    try:
+        trains = build_live_trains(schedule(), lookup(), config.ROUTES)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
+    return jsonify({"trains": trains})
 
 
 @app.route("/api/stops")
