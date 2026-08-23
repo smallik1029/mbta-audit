@@ -1,4 +1,8 @@
 """evaluate the correction table on the held-out split"""
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import pandas as pd
 
 from src import config
@@ -53,6 +57,28 @@ def summarize(test: pd.DataFrame, corrected_error: pd.Series) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def plot_comparison(table: pd.DataFrame, out_path: str) -> None:
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    x = range(len(table))
+    width = 0.35
+    ax.bar([i - width / 2 for i in x], table["baseline_median_abs_error_sec"],
+           width, label="MBTA raw prediction", color="#8a8a8a")
+    ax.bar([i + width / 2 for i in x], table["corrected_median_abs_error_sec"],
+           width, label="Corrected (this project)", color="#DA291C")
+    for i, row in table.iterrows():
+        ax.text(i, max(row["baseline_median_abs_error_sec"], row["corrected_median_abs_error_sec"]) + 2,
+                f"-{row['improvement_pct']:.0f}%", ha="center", fontsize=10, fontweight="bold")
+    ax.set_xticks(list(x))
+    ax.set_xticklabels([f"{m} min out" for m in table["lead_time_min"]])
+    ax.set_ylabel("Median absolute error (seconds)")
+    ax.set_title("Bias-corrected predictions vs. MBTA's raw predictions (held-out test set)")
+    ax.legend()
+    ax.grid(alpha=0.3, axis="y")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
 def main() -> None:
     train, test, lookup = load_splits()
     print(f"evaluating on {len(test):,} held-out test rows "
@@ -72,6 +98,12 @@ def main() -> None:
     table = summarize(test, corrected_error)
     print("\nBy lead time:")
     print(table.to_string(index=False))
+
+    reports_dir = config.ROOT / "reports"
+    reports_dir.mkdir(exist_ok=True)
+    out_path = reports_dir / "model_improvement.png"
+    plot_comparison(table, str(out_path))
+    print(f"\nSaved comparison chart -> {out_path}")
 
 
 if __name__ == "__main__":
