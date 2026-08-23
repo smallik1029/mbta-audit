@@ -8,5 +8,4 @@ __pycache__/
 *.pyc
 .venv/
 venv/
-reports/*.png
 .pytest_cache/
