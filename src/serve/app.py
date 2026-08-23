@@ -4,11 +4,12 @@ from flask import Flask, jsonify, render_template, request
 
 from src import config, db
 from src.serve.correction import get_corrected_predictions, load_lookup
-from src.serve.live_map import ScheduleIndex, build_live_trains, load_shapes
+from src.serve.live_map import ScheduleIndex, ShapeIndex, build_live_trains, load_shapes
 
 app = Flask(__name__)
 _lookup = None
 _schedule = None
+_shape_index = None
 _shapes = None
 
 
@@ -24,6 +25,13 @@ def schedule() -> ScheduleIndex:
     if _schedule is None:
         _schedule = ScheduleIndex()
     return _schedule
+
+
+def shape_index() -> ShapeIndex:
+    global _shape_index
+    if _shape_index is None:
+        _shape_index = ShapeIndex()
+    return _shape_index
 
 
 def shapes() -> dict:
@@ -51,7 +59,7 @@ def api_shapes():
 @app.route("/api/live_map")
 def api_live_map():
     try:
-        trains = build_live_trains(schedule(), lookup(), config.ROUTES)
+        trains = build_live_trains(schedule(), shape_index(), lookup(), config.ROUTES)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
     return jsonify({"trains": trains})

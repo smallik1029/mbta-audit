@@ -1,6 +1,8 @@
 """builds the two-dot-per-train map data"""
+import math
 from datetime import UTC, datetime
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -16,6 +18,15 @@ def _parse_gtfs_time_to_seconds(hms: str) -> float:
     return int(h) * 3600 + int(m) * 60 + int(s)
 
 
+def _haversine_m(lat1, lon1, lat2, lon2) -> float:
+    r = 6_371_000
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
 def load_shapes() -> dict:
     shapes = pd.read_parquet(GTFS_DIR / "ro_shapes.parquet")
     trip_route = pd.read_parquet(GTFS_DIR / "ro_trip_route.parquet")
@@ -28,9 +39,56 @@ def load_shapes() -> dict:
         if route_id not in out:
             continue
         ordered = group.sort_values("shape_pt_sequence")
-        points = ordered[["shape_pt_lat", "shape_pt_lon"]].astype(float).values.tolist()
+        points = ordered[["shape_pt_lat", "shape_pt_lon"]].values.tolist()
         out[route_id].append(points)
     return out
+
+
+class ShapeIndex:
+    """shape points plus cumulative distance, for snapping a train onto real track"""
+
+    def __init__(self):
+        shapes = pd.read_parquet(GTFS_DIR / "ro_shapes.parquet")
+        self._points: dict[str, np.ndarray] = {}
+        self._cumdist: dict[str, np.ndarray] = {}
+        for shape_id, group in shapes.groupby("shape_id"):
+            ordered = group.sort_values("shape_pt_sequence")
+            pts = ordered[["shape_pt_lat", "shape_pt_lon"]].to_numpy()
+            cum = np.zeros(len(pts))
+            for i in range(1, len(pts)):
+                cum[i] = cum[i - 1] + _haversine_m(*pts[i - 1], *pts[i])
+            self._points[shape_id] = pts
+            self._cumdist[shape_id] = cum
+
+    def _nearest_index(self, shape_id: str, lat: float, lon: float) -> int:
+        pts = self._points[shape_id]
+        d2 = (pts[:, 0] - lat) ** 2 + (pts[:, 1] - lon) ** 2
+        return int(np.argmin(d2))
+
+    def position_along(self, shape_id: str, prev_latlon, next_latlon, frac: float):
+        """point frac of the way from prev to next, snapped onto the shape"""
+        if shape_id not in self._points:
+            return None
+        i0 = self._nearest_index(shape_id, *prev_latlon)
+        i1 = self._nearest_index(shape_id, *next_latlon)
+        lo, hi = min(i0, i1), max(i0, i1)
+        if lo == hi:
+            return list(self._points[shape_id][lo])
+
+        cum = self._cumdist[shape_id]
+        leg_start, leg_end = cum[lo], cum[hi]
+        target = leg_start + (leg_end - leg_start) * frac
+
+        idx = np.searchsorted(cum[lo:hi + 1], target) + lo
+        idx = min(max(idx, lo + 1), hi)
+        seg_frac_denom = cum[idx] - cum[idx - 1]
+        seg_frac = 0.0 if seg_frac_denom <= 0 else (target - cum[idx - 1]) / seg_frac_denom
+
+        p0, p1 = self._points[shape_id][idx - 1], self._points[shape_id][idx]
+        return [
+            float(p0[0] + (p1[0] - p0[0]) * seg_frac),
+            float(p0[1] + (p1[1] - p0[1]) * seg_frac),
+        ]
 
 
 class ScheduleIndex:
@@ -46,8 +104,8 @@ class ScheduleIndex:
         st["prev_departure_sec"] = st.groupby("trip_id")["departure_sec"].shift(1)
         self.st = st.set_index(["trip_id", "stop_id"])
 
-        latlon = pd.read_parquet(GTFS_DIR / "ro_stop_latlon.parquet").set_index("stop_id")
-        self.latlon = latlon
+        self.latlon = pd.read_parquet(GTFS_DIR / "ro_stop_latlon.parquet").set_index("stop_id")
+        self.trip_info = pd.read_parquet(GTFS_DIR / "ro_trip_route.parquet").set_index("trip_id")
 
     def get_leg(self, trip_id: str, next_stop_id: str):
         try:
@@ -65,15 +123,22 @@ class ScheduleIndex:
             return None
 
         try:
-            prev_lat, prev_lon = self.latlon.loc[prev_stop_id][["stop_lat", "stop_lon"]]
-            next_lat, next_lon = self.latlon.loc[next_stop_id][["stop_lat", "stop_lon"]]
+            prev = self.latlon.loc[prev_stop_id]
+            nxt = self.latlon.loc[next_stop_id]
+            trip = self.trip_info.loc[trip_id]
         except KeyError:
             return None
+        if isinstance(trip, pd.DataFrame):
+            trip = trip.iloc[0]
 
         return {
-            "prev_lat": float(prev_lat), "prev_lon": float(prev_lon),
-            "next_lat": float(next_lat), "next_lon": float(next_lon),
+            "prev_latlon": (float(prev["stop_lat"]), float(prev["stop_lon"])),
+            "next_latlon": (float(nxt["stop_lat"]), float(nxt["stop_lon"])),
+            "next_stop_name": str(nxt["stop_name"]),
             "leg_duration_sec": float(leg_duration),
+            "shape_id": str(trip["shape_id"]),
+            "headsign": str(trip["trip_headsign"]),
+            "direction_id": int(trip["direction_id"]),
         }
 
 
@@ -93,14 +158,9 @@ def _rel_id(item: dict, name: str):
     return (rel.get("data") or {}).get("id")
 
 
-def _lerp(leg: dict, frac: float) -> list:
-    return [
-        leg["prev_lat"] + (leg["next_lat"] - leg["prev_lat"]) * frac,
-        leg["prev_lon"] + (leg["next_lon"] - leg["prev_lon"]) * frac,
-    ]
-
-
-def build_live_trains(schedule: ScheduleIndex, lookup: dict, routes: list[str]) -> list[dict]:
+def build_live_trains(
+    schedule: ScheduleIndex, shape_index: ShapeIndex, lookup: dict, routes: list[str]
+) -> list[dict]:
     predictions = _fetch("/predictions", routes)
     now = datetime.now(UTC)
 
@@ -130,17 +190,29 @@ def build_live_trains(schedule: ScheduleIndex, lookup: dict, routes: list[str]) 
 
         route_id = pred["route_id"]
         bucket = lead_bucket(pred["lead_sec"])
-        bias, _level = lookup_bias(lookup, route_id, pred["stop_id"], bucket)
+        bias, confidence = lookup_bias(lookup, route_id, pred["stop_id"], bucket)
         corrected_lead_sec = pred["lead_sec"] - bias
 
         raw_frac = 1 - min(max(pred["lead_sec"] / leg["leg_duration_sec"], 0), 1)
         corrected_frac = 1 - min(max(corrected_lead_sec / leg["leg_duration_sec"], 0), 1)
 
+        shape_id, prev_ll, next_ll = leg["shape_id"], leg["prev_latlon"], leg["next_latlon"]
+        raw_pos = shape_index.position_along(shape_id, prev_ll, next_ll, raw_frac)
+        corrected_pos = shape_index.position_along(shape_id, prev_ll, next_ll, corrected_frac)
+        if raw_pos is None or corrected_pos is None:
+            continue
+
         results.append({
             "trip_id": trip_id,
             "route_id": route_id,
-            "raw_pos": _lerp(leg, raw_frac),
-            "corrected_pos": _lerp(leg, corrected_frac),
+            "headsign": leg["headsign"],
+            "next_stop_name": leg["next_stop_name"],
+            "raw_pos": raw_pos,
+            "corrected_pos": corrected_pos,
+            "raw_min": round(pred["lead_sec"] / 60, 1),
+            "corrected_min": round(corrected_lead_sec / 60, 1),
+            "adjustment_sec": round(-bias),
+            "confidence": confidence,
         })
 
     return results

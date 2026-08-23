@@ -18,6 +18,15 @@
   .panel p { font-size: 0.82rem; color: #9aa0ab; margin: 0.3rem 0; line-height: 1.4; }
   .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
   .status { font-size: 0.78rem; color: #9aa0ab; margin-top: 0.5rem; }
+  .train-tooltip {
+    background: #171a21; color: #e8e9ec; border: 1px solid #2a2e38;
+    border-radius: 8px; font-family: -apple-system, "Segoe UI", sans-serif;
+    font-size: 0.82rem; padding: 0.5rem 0.7rem; line-height: 1.5;
+  }
+  .train-tooltip b { color: #fff; }
+  .train-tooltip .later { color: #ED8B00; }
+  .train-tooltip .earlier { color: #4caf50; }
+  .leaflet-tooltip-top.train-tooltip::before { border-top-color: #2a2e38; }
 </style>
 </head>
 <body>
@@ -26,7 +35,7 @@
   <h1>MBTA Live Prediction Map</h1>
   <p><span class="legend-dot" style="background:#ffffff"></span>Solid = MBTA's raw predicted position</p>
   <p><span class="legend-dot" style="background:#ffffff; opacity:0.35"></span>Hollow/faint = bias-corrected position</p>
-  <p>The gap between each pair is the correction in action, right now.</p>
+  <p>Hover a dot for details. The gap between each pair is the correction in action, right now.</p>
   <div class="status" id="status">Loading...</div>
 </div>
 
@@ -34,21 +43,48 @@
 <script>
 const ROUTE_COLORS = { Red: '#DA291C', Orange: '#ED8B00' };
 
-const map = L.map('map', { zoomControl: true }).setView([42.3601, -71.0942], 13);
+const map = L.map('map', { zoomControl: true });
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap &copy; CARTO',
   maxZoom: 19,
 }).addTo(map);
 
 let trainLayers = [];
+let boundsFitted = false;
 
 function drawShapes(shapesByRoute) {
+  const allPoints = [];
   for (const [route, polylines] of Object.entries(shapesByRoute)) {
     const color = ROUTE_COLORS[route] || '#888';
     for (const points of polylines) {
       L.polyline(points, { color, weight: 3, opacity: 0.55 }).addTo(map);
+      allPoints.push(...points);
     }
   }
+  if (allPoints.length && !boundsFitted) {
+    const bounds = L.latLngBounds(allPoints).pad(0.08);
+    map.fitBounds(bounds);
+    map.setMinZoom(map.getZoom());
+    map.setMaxBounds(map.getBounds().pad(0.15));
+    boundsFitted = true;
+  }
+}
+
+function tooltipHtml(t, kind) {
+  const time = kind === 'raw' ? t.raw_min : t.corrected_min;
+  const adjClass = t.adjustment_sec > 0 ? 'later' : (t.adjustment_sec < 0 ? 'earlier' : '');
+  const adjSign = t.adjustment_sec > 0 ? '+' : '';
+  return `
+    <b>${t.route_id} Line</b> &rarr; ${t.headsign}<br>
+    Next stop: ${t.next_stop_name}<br>
+    <br>
+    MBTA raw: ${t.raw_min.toFixed(1)} min<br>
+    Corrected: <b>${t.corrected_min.toFixed(1)} min</b><br>
+    Adjustment: <span class="${adjClass}">${adjSign}${t.adjustment_sec}s</span>
+      (${t.confidence}-level history)<br>
+    <br>
+    <i>Showing: ${kind === 'raw' ? 'raw predicted' : 'bias-corrected'} position (${time.toFixed(1)} min out)</i>
+  `;
 }
 
 function refreshTrains() {
@@ -68,9 +104,13 @@ function refreshTrains() {
         const raw = L.circleMarker(t.raw_pos, {
           radius: 6, color: '#fff', weight: 1.5, fillColor: color, fillOpacity: 1,
         }).addTo(map);
+        raw.bindTooltip(tooltipHtml(t, 'raw'), { className: 'train-tooltip', direction: 'top', sticky: true });
+
         const corrected = L.circleMarker(t.corrected_pos, {
           radius: 6, color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.25,
         }).addTo(map);
+        corrected.bindTooltip(tooltipHtml(t, 'corrected'), { className: 'train-tooltip', direction: 'top', sticky: true });
+
         const line = L.polyline([t.raw_pos, t.corrected_pos], {
           color: '#fff', weight: 1, opacity: 0.4, dashArray: '2,4',
         }).addTo(map);
@@ -79,7 +119,7 @@ function refreshTrains() {
 
       const now = new Date().toLocaleTimeString();
       document.getElementById('status').textContent =
-        `${data.trains.length} active trains \u2014 updated ${now}`;
+        `${data.trains.length} active trains — updated ${now}`;
     })
     .catch(() => {
       document.getElementById('status').textContent = 'Failed to fetch live data.';
