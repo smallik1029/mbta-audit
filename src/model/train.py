@@ -18,11 +18,18 @@ def load_outcomes() -> pd.DataFrame:
     return add_lead_bucket(df)
 
 
-def fit_lookup(train: pd.DataFrame) -> dict:
-    by_stop = train.groupby(["route_id", "stop_id", "lead_bucket"])["error_sec"].median()
-    by_route = train.groupby(["route_id", "lead_bucket"])["error_sec"].median()
-    by_bucket = train.groupby(["lead_bucket"])["error_sec"].median()
+def fit_lookup(data: pd.DataFrame) -> dict:
+    by_stop = data.groupby(["route_id", "stop_id", "lead_bucket"])["error_sec"].median()
+    by_route = data.groupby(["route_id", "lead_bucket"])["error_sec"].median()
+    by_bucket = data.groupby(["lead_bucket"])["error_sec"].median()
     return {"by_stop": by_stop, "by_route": by_route, "by_bucket": by_bucket}
+
+
+def export_lookup_csv(lookup: dict, out_dir) -> None:
+    """the small csvs the serving code reads. includes n so the ui can show what backs each number"""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for key, series in lookup.items():
+        series.to_frame("bias_sec").reset_index().to_csv(out_dir / f"bias_{key}.csv", index=False)
 
 
 def main() -> None:
@@ -32,13 +39,17 @@ def main() -> None:
     print(f"test:  {len(test):,} rows ({test['observed_at'].min()} -> {test['observed_at'].max()})")
 
     lookup = fit_lookup(train)
-    print(f"\nlookup table: {len(lookup['by_stop']):,} (route,stop,lead_bucket) cells")
-
+    print(f"\nvalidation lookup table: {len(lookup['by_stop']):,} (route,stop,lead_bucket) cells")
     train.to_parquet(config.ROOT / "data" / "_train_split.parquet")
     test.to_parquet(config.ROOT / "data" / "_test_split.parquet")
     for key, series in lookup.items():
         series.to_frame("bias_sec").to_parquet(config.ROOT / "data" / f"_lookup_{key}.parquet")
-    print("saved train/test splits and lookup table to data/ (gitignored, intermediate only)")
+
+    final_lookup = fit_lookup(df)
+    artifacts_dir = config.ROOT / "model_artifacts"
+    export_lookup_csv(final_lookup, artifacts_dir)
+    print(f"production lookup table: {len(final_lookup['by_stop']):,} cells, "
+          f"fit on all {len(df):,} rows -> {artifacts_dir}/")
 
 
 if __name__ == "__main__":
