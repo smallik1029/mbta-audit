@@ -172,30 +172,10 @@ def _rel_id(item: dict, name: str):
     return (rel.get("data") or {}).get("id")
 
 
-def build_live_trains(
-    schedule: ScheduleIndex, shape_index: ShapeIndex, lookup: dict, routes: list[str]
+def _compute_train_positions(
+    next_pred: dict[str, dict], schedule: ScheduleIndex, shape_index: ShapeIndex, lookup: dict
 ) -> list[dict]:
-    predictions = _fetch("/predictions", routes)
-    now = datetime.now(UTC)
-
-    next_pred: dict[str, dict] = {}
-    for item in predictions:
-        attrs = item.get("attributes") or {}
-        arrival = attrs.get("arrival_time")
-        trip_id = _rel_id(item, "trip")
-        if not arrival or not trip_id:
-            continue
-        arrival_dt = pd.Timestamp(arrival).tz_convert("UTC")
-        lead_sec = (arrival_dt - now).total_seconds()
-        if lead_sec < 0:
-            continue
-        if trip_id not in next_pred or lead_sec < next_pred[trip_id]["lead_sec"]:
-            next_pred[trip_id] = {
-                "stop_id": _rel_id(item, "stop"),
-                "route_id": _rel_id(item, "route"),
-                "lead_sec": lead_sec,
-            }
-
+    """given the soonest pending stop per trip, work out both dots. shared by live and historical"""
     results = []
     for trip_id, pred in next_pred.items():
         leg = schedule.get_leg(trip_id, pred["stop_id"])
@@ -230,3 +210,54 @@ def build_live_trains(
         })
 
     return results
+
+
+def build_live_trains(
+    schedule: ScheduleIndex, shape_index: ShapeIndex, lookup: dict, routes: list[str]
+) -> list[dict]:
+    predictions = _fetch("/predictions", routes)
+    now = datetime.now(UTC)
+
+    next_pred: dict[str, dict] = {}
+    for item in predictions:
+        attrs = item.get("attributes") or {}
+        arrival = attrs.get("arrival_time")
+        trip_id = _rel_id(item, "trip")
+        if not arrival or not trip_id:
+            continue
+        arrival_dt = pd.Timestamp(arrival).tz_convert("UTC")
+        lead_sec = (arrival_dt - now).total_seconds()
+        if lead_sec < 0:
+            continue
+        if trip_id not in next_pred or lead_sec < next_pred[trip_id]["lead_sec"]:
+            next_pred[trip_id] = {
+                "stop_id": _rel_id(item, "stop"),
+                "route_id": _rel_id(item, "route"),
+                "lead_sec": lead_sec,
+            }
+
+    return _compute_train_positions(next_pred, schedule, shape_index, lookup)
+
+
+def build_historical_trains(
+    t,
+    history_api_url: str,
+    schedule: ScheduleIndex,
+    shape_index: ShapeIndex,
+    lookup: dict,
+    routes: list[str],
+) -> list[dict]:
+    """same shape as build_live_trains, but sourced from the history api"""
+    resp = requests.get(
+        f"{history_api_url}/historical_predictions",
+        params={"t": t.isoformat(), "routes": ",".join(routes)},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    next_pred = {
+        p["trip_id"]: {"stop_id": p["stop_id"], "route_id": p["route_id"], "lead_sec": p["lead_sec"]}
+        for p in data["predictions"]
+    }
+    return _compute_train_positions(next_pred, schedule, shape_index, lookup)

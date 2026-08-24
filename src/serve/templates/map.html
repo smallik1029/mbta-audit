@@ -27,6 +27,21 @@
   .train-tooltip .later { color: #ED8B00; }
   .train-tooltip .earlier { color: #4caf50; }
   .leaflet-tooltip-top.train-tooltip::before { border-top-color: #2a2e38; }
+  .time-panel {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; background: #171a21ee; border: 1px solid #2a2e38; border-radius: 10px;
+    padding: 0.8rem 1.2rem; color: #e8e9ec; font-family: -apple-system, "Segoe UI", sans-serif;
+    width: min(520px, 90vw); text-align: center;
+  }
+  .time-panel .label { font-size: 0.85rem; color: #9aa0ab; margin-bottom: 0.4rem; }
+  .time-panel .label b { color: #e8e9ec; }
+  .time-row { display: flex; align-items: center; gap: 0.6rem; }
+  .time-row input[type="range"] { flex: 1; accent-color: #DA291C; }
+  .live-btn {
+    background: #1f232c; color: #e8e9ec; border: 1px solid #2a2e38;
+    border-radius: 6px; padding: 0.35rem 0.8rem; font-size: 0.8rem; cursor: pointer;
+  }
+  .live-btn.is-live { background: #2e7d32; border-color: #2e7d32; color: #fff; cursor: default; }
 </style>
 </head>
 <body>
@@ -37,6 +52,14 @@
   <p><span class="legend-dot" style="background:#ffffff; opacity:0.35"></span>Hollow/faint = bias-corrected position</p>
   <p>Hover a dot for details. The gap between each pair is the correction in action, right now.</p>
   <div class="status" id="status">Loading...</div>
+</div>
+
+<div class="time-panel">
+  <div class="label" id="timeLabel">Live &mdash; showing right now</div>
+  <div class="time-row">
+    <input type="range" id="timeSlider" min="0" max="1440" step="5" value="0">
+    <button class="live-btn is-live" id="liveBtn">Live</button>
+  </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -96,38 +119,43 @@ function tooltipHtml(t, kind) {
   `;
 }
 
+function renderTrains(trains) {
+  trainLayers.forEach(l => map.removeLayer(l));
+  trainLayers = [];
+
+  for (const t of trains) {
+    const color = ROUTE_COLORS[t.route_id] || '#888';
+    const raw = L.circleMarker(t.raw_pos, {
+      radius: 8, color: '#fff', weight: 2.5, fillColor: color, fillOpacity: 1,
+    }).addTo(map);
+    raw.bindTooltip(tooltipHtml(t, 'raw'), { className: 'train-tooltip', direction: 'top', sticky: true });
+
+    const corrected = L.circleMarker(t.corrected_pos, {
+      radius: 7, color: '#fff', weight: 1.5, fillColor: color, fillOpacity: 0.3,
+    }).addTo(map);
+    corrected.bindTooltip(tooltipHtml(t, 'corrected'), { className: 'train-tooltip', direction: 'top', sticky: true });
+
+    const line = L.polyline([t.raw_pos, t.corrected_pos], {
+      color: '#fff', weight: 1, opacity: 0.4, dashArray: '2,4',
+    }).addTo(map);
+    raw.bringToFront();
+    corrected.bringToFront();
+    trainLayers.push(raw, corrected, line);
+  }
+}
+
+let isLive = true;
+
 function refreshTrains() {
+  if (!isLive) return;  // paused while scrubbing history
   fetch('/api/live_map')
     .then(r => r.json())
     .then(data => {
-      trainLayers.forEach(l => map.removeLayer(l));
-      trainLayers = [];
-
       if (data.error) {
         document.getElementById('status').textContent = 'Error: ' + data.error;
         return;
       }
-
-      for (const t of data.trains) {
-        const color = ROUTE_COLORS[t.route_id] || '#888';
-        const raw = L.circleMarker(t.raw_pos, {
-          radius: 8, color: '#fff', weight: 2.5, fillColor: color, fillOpacity: 1,
-        }).addTo(map);
-        raw.bindTooltip(tooltipHtml(t, 'raw'), { className: 'train-tooltip', direction: 'top', sticky: true });
-
-        const corrected = L.circleMarker(t.corrected_pos, {
-          radius: 7, color: '#fff', weight: 1.5, fillColor: color, fillOpacity: 0.3,
-        }).addTo(map);
-        corrected.bindTooltip(tooltipHtml(t, 'corrected'), { className: 'train-tooltip', direction: 'top', sticky: true });
-
-        const line = L.polyline([t.raw_pos, t.corrected_pos], {
-          color: '#fff', weight: 1, opacity: 0.4, dashArray: '2,4',
-        }).addTo(map);
-        raw.bringToFront();
-        corrected.bringToFront();
-        trainLayers.push(raw, corrected, line);
-      }
-
+      renderTrains(data.trains);
       const now = new Date().toLocaleTimeString();
       document.getElementById('status').textContent =
         `${data.trains.length} active trains — updated ${now}`;
@@ -136,6 +164,62 @@ function refreshTrains() {
       document.getElementById('status').textContent = 'Failed to fetch live data.';
     });
 }
+
+function fetchHistorical(t) {
+  const url = '/api/historical_map?t=' + encodeURIComponent(t.toISOString());
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        document.getElementById('status').textContent = 'Error: ' + data.error;
+        return;
+      }
+      renderTrains(data.trains);
+      document.getElementById('status').textContent =
+        `${data.trains.length} trains as of ${t.toLocaleString()}`;
+    })
+    .catch(() => {
+      document.getElementById('status').textContent = 'Failed to fetch historical data.';
+    });
+}
+
+const slider = document.getElementById('timeSlider');
+const liveBtn = document.getElementById('liveBtn');
+const timeLabel = document.getElementById('timeLabel');
+let debounceHandle = null;
+
+function setLiveMode(live) {
+  isLive = live;
+  liveBtn.classList.toggle('is-live', live);
+  liveBtn.textContent = live ? 'Live' : 'Go Live';
+  if (live) {
+    slider.value = 0;
+    timeLabel.innerHTML = 'Live &mdash; showing right now';
+    refreshTrains();
+  }
+}
+
+slider.addEventListener('input', () => {
+  const minutesAgo = parseInt(slider.value, 10);
+  const t = new Date(Date.now() - minutesAgo * 60_000);
+  isLive = (minutesAgo === 0);
+  liveBtn.classList.toggle('is-live', isLive);
+  liveBtn.textContent = isLive ? 'Live' : 'Go Live';
+  timeLabel.innerHTML = minutesAgo === 0
+    ? 'Live &mdash; showing right now'
+    : `<b>${t.toLocaleString()}</b> (${minutesAgo} min ago)`;
+
+  clearTimeout(debounceHandle);
+  debounceHandle = setTimeout(() => {
+    if (minutesAgo === 0) {
+      refreshTrains();
+    } else {
+      fetchHistorical(t);
+    }
+  }, 250);
+});
+
+liveBtn.addEventListener('click', () => setLiveMode(true));
 
 fetch('/api/shapes')
   .then(r => r.json())

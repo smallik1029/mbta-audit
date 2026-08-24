@@ -4,7 +4,14 @@ from flask import Flask, jsonify, render_template, request
 
 from src import config, db
 from src.serve.correction import get_corrected_predictions, load_lookup, merge_lookups
-from src.serve.live_map import ScheduleIndex, ShapeIndex, build_live_trains, load_shapes, load_stations
+from src.serve.live_map import (
+    ScheduleIndex,
+    ShapeIndex,
+    build_historical_trains,
+    build_live_trains,
+    load_shapes,
+    load_stations,
+)
 
 MAP_ROUTES = ["Red", "Orange", "Blue"]
 BLUE_ARTIFACTS_DIR = config.ROOT / "model_artifacts_blue"
@@ -92,6 +99,26 @@ def api_live_map():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
     return jsonify({"trains": trains})
+
+
+@app.route("/api/historical_map")
+def api_historical_map():
+    t_param = request.args.get("t")
+    if not t_param:
+        return jsonify({"error": "t (ISO8601 timestamp) is required"}), 400
+    try:
+        t = pd.Timestamp(t_param)
+        t = t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
+    except ValueError:
+        return jsonify({"error": f"could not parse timestamp: {t_param}"}), 400
+
+    try:
+        trains = build_historical_trains(
+            t, config.HISTORY_API_URL, schedule(), shape_index(), map_lookup(), MAP_ROUTES
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
+    return jsonify({"t": t.isoformat(), "trains": trains})
 
 
 @app.route("/api/stops")
