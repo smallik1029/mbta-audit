@@ -72,9 +72,8 @@ function drawShapes(shapesByRoute) {
 
 function drawStations(stations) {
   for (const s of stations) {
-    const color = ROUTE_COLORS[s.route_id] || '#888';
     const marker = L.circleMarker([s.lat, s.lon], {
-      radius: 9, color: '#fff', weight: 2, fillColor: color, fillOpacity: 0.9,
+      radius: 8, color: '#454b58', weight: 1.5, fillColor: '#d8dbe2', fillOpacity: 0.95,
     }).addTo(map);
     marker.bindTooltip(s.stop_name, { className: 'train-tooltip', direction: 'top' });
   }
@@ -112,18 +111,20 @@ function refreshTrains() {
       for (const t of data.trains) {
         const color = ROUTE_COLORS[t.route_id] || '#888';
         const raw = L.circleMarker(t.raw_pos, {
-          radius: 6, color: '#fff', weight: 1.5, fillColor: color, fillOpacity: 1,
+          radius: 8, color: '#fff', weight: 2.5, fillColor: color, fillOpacity: 1,
         }).addTo(map);
         raw.bindTooltip(tooltipHtml(t, 'raw'), { className: 'train-tooltip', direction: 'top', sticky: true });
 
         const corrected = L.circleMarker(t.corrected_pos, {
-          radius: 6, color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.25,
+          radius: 7, color: '#fff', weight: 1.5, fillColor: color, fillOpacity: 0.3,
         }).addTo(map);
         corrected.bindTooltip(tooltipHtml(t, 'corrected'), { className: 'train-tooltip', direction: 'top', sticky: true });
 
         const line = L.polyline([t.raw_pos, t.corrected_pos], {
           color: '#fff', weight: 1, opacity: 0.4, dashArray: '2,4',
         }).addTo(map);
+        raw.bringToFront();
+        corrected.bringToFront();
         trainLayers.push(raw, corrected, line);
       }
 
