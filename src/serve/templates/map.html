@@ -182,11 +182,15 @@ function renderTrains(trains) {
 
 let isLive = true;
 
+let latestRequestId = 0;
+
 function refreshTrains() {
   if (!isLive) return;  // paused while scrubbing history
+  const requestId = ++latestRequestId;
   fetch('/api/live_map')
     .then(r => r.json())
     .then(data => {
+      if (requestId !== latestRequestId) return;  // superseded by a newer request
       if (data.error) {
         document.getElementById('status').textContent = 'Error: ' + data.error;
         return;
@@ -197,15 +201,18 @@ function refreshTrains() {
         `${data.trains.length} active trains — updated ${now}`;
     })
     .catch(() => {
+      if (requestId !== latestRequestId) return;
       document.getElementById('status').textContent = 'Failed to fetch live data.';
     });
 }
 
 function fetchHistorical(t) {
+  const requestId = ++latestRequestId;
   const url = '/api/historical_map?t=' + encodeURIComponent(t.toISOString());
   fetch(url)
     .then(r => r.json())
     .then(data => {
+      if (requestId !== latestRequestId) return;  // superseded by a newer request
       if (data.error) {
         document.getElementById('status').textContent = 'Error: ' + data.error;
         return;
@@ -215,6 +222,7 @@ function fetchHistorical(t) {
         `${data.trains.length} trains as of ${t.toLocaleString()}`;
     })
     .catch(() => {
+      if (requestId !== latestRequestId) return;
       document.getElementById('status').textContent = 'Failed to fetch historical data.';
     });
 }
