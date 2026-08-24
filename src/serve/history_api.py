@@ -77,6 +77,19 @@ def api_historical_predictions():
     return jsonify({"t": t.isoformat(), "predictions": predictions})
 
 
+@app.route("/data_range")
+def api_data_range():
+    """how far back the current continuous run goes"""
+    conn = _connect_readonly()
+    gap_row = conn.execute("SELECT MAX(ended_at) FROM collector_gaps").fetchone()
+    if gap_row and gap_row[0]:
+        earliest = gap_row[0]
+    else:
+        earliest = conn.execute("SELECT MIN(observed_at) FROM prediction_snapshots").fetchone()[0]
+    conn.close()
+    return jsonify({"earliest": earliest})
+
+
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})

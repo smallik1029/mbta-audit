@@ -1,5 +1,6 @@
 """web front end. live map and single-stop lookup"""
 import pandas as pd
+import requests
 from flask import Flask, jsonify, render_template, request
 
 from src import config, db
@@ -90,6 +91,16 @@ def api_stations():
 @app.route("/api/shapes")
 def api_shapes():
     return jsonify(shapes())
+
+
+@app.route("/api/data_range")
+def api_data_range():
+    try:
+        resp = requests.get(f"{config.HISTORY_API_URL}/data_range", timeout=15)
+        resp.raise_for_status()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
+    return jsonify(resp.json())
 
 
 @app.route("/api/live_map")

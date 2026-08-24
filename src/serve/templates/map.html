@@ -33,10 +33,46 @@
     padding: 0.8rem 1.2rem; color: #e8e9ec; font-family: -apple-system, "Segoe UI", sans-serif;
     width: min(520px, 90vw); text-align: center;
   }
-  .time-panel .label { font-size: 0.85rem; color: #9aa0ab; margin-bottom: 0.4rem; }
+  .time-panel .label { font-size: 0.85rem; color: #9aa0ab; margin-bottom: 0.5rem; }
   .time-panel .label b { color: #e8e9ec; }
-  .time-row { display: flex; align-items: center; gap: 0.6rem; }
-  .time-row input[type="range"] { flex: 1; accent-color: #DA291C; }
+  .time-row { display: flex; align-items: center; gap: 0.8rem; }
+
+  .time-row input[type="range"] {
+    flex: 1;
+    direction: rtl; /* now (0) on the right, older (max) on the left */
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    height: 16px;
+  }
+  .time-row input[type="range"]::-webkit-slider-runnable-track {
+    height: 2px;
+    background: #3a3f4b;
+    border-radius: 1px;
+  }
+  .time-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 15px; height: 15px;
+    margin-top: -6.5px;
+    border-radius: 50%;
+    background: #fff;
+    border: 3px solid #DA291C;
+    cursor: pointer;
+  }
+  .time-row input[type="range"]::-moz-range-track {
+    height: 2px;
+    background: #3a3f4b;
+    border-radius: 1px;
+  }
+  .time-row input[type="range"]::-moz-range-thumb {
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    background: #fff;
+    border: 3px solid #DA291C;
+    cursor: pointer;
+  }
+
   .live-btn {
     background: #1f232c; color: #e8e9ec; border: 1px solid #2a2e38;
     border-radius: 6px; padding: 0.35rem 0.8rem; font-size: 0.8rem; cursor: pointer;
@@ -188,6 +224,16 @@ const liveBtn = document.getElementById('liveBtn');
 const timeLabel = document.getElementById('timeLabel');
 let debounceHandle = null;
 
+const MAX_CAP_MIN = 1440; // 24h ceiling -- stops growing once real data reaches this
+
+function formatAgo(minutesAgo) {
+  const hours = Math.floor(minutesAgo / 60);
+  const mins = minutesAgo % 60;
+  if (hours === 0) return `${mins} min ago`;
+  if (mins === 0) return `${hours} hr ago`;
+  return `${hours} hr ${mins} min ago`;
+}
+
 function setLiveMode(live) {
   isLive = live;
   liveBtn.classList.toggle('is-live', live);
@@ -207,7 +253,7 @@ slider.addEventListener('input', () => {
   liveBtn.textContent = isLive ? 'Live' : 'Go Live';
   timeLabel.innerHTML = minutesAgo === 0
     ? 'Live &mdash; showing right now'
-    : `<b>${t.toLocaleString()}</b> (${minutesAgo} min ago)`;
+    : `<b>${t.toLocaleString()}</b> (${formatAgo(minutesAgo)})`;
 
   clearTimeout(debounceHandle);
   debounceHandle = setTimeout(() => {
@@ -221,12 +267,27 @@ slider.addEventListener('input', () => {
 
 liveBtn.addEventListener('click', () => setLiveMode(true));
 
+function updateSliderCap() {
+  fetch('/api/data_range')
+    .then(r => r.json())
+    .then(data => {
+      if (data.error || !data.earliest) return;
+      const earliest = new Date(data.earliest);
+      const availableMin = Math.floor((Date.now() - earliest.getTime()) / 60_000);
+      slider.max = Math.max(5, Math.min(MAX_CAP_MIN, availableMin));
+    })
+    .catch(() => { /* keep whatever cap is already set */ });
+}
+
 fetch('/api/shapes')
   .then(r => r.json())
   .then(drawShapes)
   .then(() => fetch('/api/stations'))
   .then(r => r.json())
   .then(drawStations);
+
+updateSliderCap();
+setInterval(updateSliderCap, 60_000); // grows as more history accumulates, stops at 24h
 
 refreshTrains();
 setInterval(refreshTrains, 5000);
