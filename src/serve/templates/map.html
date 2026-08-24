@@ -36,12 +36,13 @@
   <p><span class="legend-dot" style="background:#ffffff"></span>Solid = MBTA's raw predicted position</p>
   <p><span class="legend-dot" style="background:#ffffff; opacity:0.35"></span>Hollow/faint = bias-corrected position</p>
   <p>Hover a dot for details. The gap between each pair is the correction in action, right now.</p>
+  <p><i>Blue Line's correction is experimental -- not validated against Blue's specific behavior the way Red/Orange's is.</i></p>
   <div class="status" id="status">Loading...</div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const ROUTE_COLORS = { Red: '#DA291C', Orange: '#ED8B00' };
+const ROUTE_COLORS = { Red: '#DA291C', Orange: '#ED8B00', Blue: '#003DA5' };
 
 const map = L.map('map', { zoomControl: true });
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {

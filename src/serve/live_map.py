@@ -47,14 +47,14 @@ def load_shapes() -> dict:
     shape_route = trip_route[["shape_id", "route_id"]].drop_duplicates("shape_id")
     shapes = shapes.merge(shape_route, on="shape_id", how="left")
 
-    out = {"Red": [], "Orange": []}
+    out: dict[str, list] = {}
     for _shape_id, group in shapes.groupby("shape_id"):
         route_id = group["route_id"].iloc[0]
-        if route_id not in out:
+        if pd.isna(route_id):
             continue
         ordered = group.sort_values("shape_pt_sequence")
         points = ordered[["shape_pt_lat", "shape_pt_lon"]].values.tolist()
-        out[route_id].append(points)
+        out.setdefault(route_id, []).append(points)
     return out
 
 

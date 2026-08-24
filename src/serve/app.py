@@ -3,11 +3,15 @@ import pandas as pd
 from flask import Flask, jsonify, render_template, request
 
 from src import config, db
-from src.serve.correction import get_corrected_predictions, load_lookup
+from src.serve.correction import get_corrected_predictions, load_lookup, merge_lookups
 from src.serve.live_map import ScheduleIndex, ShapeIndex, build_live_trains, load_shapes, load_stations
+
+MAP_ROUTES = ["Red", "Orange", "Blue"]
+BLUE_ARTIFACTS_DIR = config.ROOT / "model_artifacts_blue"
 
 app = Flask(__name__)
 _lookup = None
+_map_lookup = None
 _schedule = None
 _shape_index = None
 _shapes = None
@@ -15,10 +19,22 @@ _stations = None
 
 
 def lookup() -> dict:
+    """the one lookup table. reloads itself when the csvs change on disk"""
     global _lookup
     if _lookup is None:
         _lookup = load_lookup()
     return _lookup
+
+
+def map_lookup() -> dict:
+    """Red/Orange + Blue combined, in memory only, for the live map's"""
+    global _map_lookup
+    if _map_lookup is None:
+        if BLUE_ARTIFACTS_DIR.exists():
+            _map_lookup = merge_lookups(lookup(), load_lookup(BLUE_ARTIFACTS_DIR))
+        else:
+            _map_lookup = lookup()
+    return _map_lookup
 
 
 def schedule() -> ScheduleIndex:
@@ -72,7 +88,7 @@ def api_shapes():
 @app.route("/api/live_map")
 def api_live_map():
     try:
-        trains = build_live_trains(schedule(), shape_index(), lookup(), config.ROUTES)
+        trains = build_live_trains(schedule(), shape_index(), map_lookup(), MAP_ROUTES)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
     return jsonify({"trains": trains})
