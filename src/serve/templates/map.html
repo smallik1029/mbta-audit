@@ -39,7 +39,7 @@
 
   .time-row input[type="range"] {
     flex: 1;
-    direction: rtl; /* now (0) on the right, older (max) on the left */
+    direction: rtl;
     -webkit-appearance: none;
     appearance: none;
     background: transparent;
@@ -87,11 +87,12 @@
   <p><span class="legend-dot" style="background:#ffffff"></span>Solid = MBTA's raw predicted position</p>
   <p><span class="legend-dot" style="background:#ffffff; opacity:0.35"></span>Hollow/faint = bias-corrected position</p>
   <p>Hover a dot for details. The gap between each pair is the correction in action, right now.</p>
+  <button class="live-btn is-live" id="connectorToggle" style="margin-top: 0.3rem;">Connectors: On</button>
   <div class="status" id="status">Loading...</div>
 </div>
 
 <div class="time-panel">
-  <div class="label" id="timeLabel">Live &mdash; showing right now</div>
+  <div class="label" id="timeLabel">Live</div>
   <div class="time-row">
     <input type="range" id="timeSlider" min="0" max="1440" step="any" value="0">
     <button class="live-btn is-live" id="liveBtn">Live</button>
@@ -155,7 +156,46 @@ function tooltipHtml(t, kind) {
   `;
 }
 
+function curvedLatLngs(latlng0, latlng1, offsetPx) {
+  const p0 = map.latLngToLayerPoint(latlng0);
+  const p1 = map.latLngToLayerPoint(latlng1);
+  const dx = p1.x - p0.x, dy = p1.y - p0.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const nx = -dy / len, ny = dx / len; // unit perpendicular
+  const midX = (p0.x + p1.x) / 2 + nx * offsetPx;
+  const midY = (p0.y + p1.y) / 2 + ny * offsetPx;
+
+  const points = [];
+  const steps = 16;
+  for (let i = 0; i <= steps; i++) {
+    const s = i / steps;
+    const x = (1 - s) * (1 - s) * p0.x + 2 * (1 - s) * s * midX + s * s * p1.x;
+    const y = (1 - s) * (1 - s) * p0.y + 2 * (1 - s) * s * midY + s * s * p1.y;
+    points.push(map.layerPointToLatLng(L.point(x, y)));
+  }
+  return points;
+}
+
+let lastTrains = [];
+let connectorLayers = [];
+let showConnectors = true;
+
+function drawConnectors() {
+  connectorLayers.forEach(l => map.removeLayer(l));
+  connectorLayers = [];
+  if (!showConnectors) return;
+
+  for (const t of lastTrains) {
+    const curve = L.polyline(curvedLatLngs(t.raw_pos, t.corrected_pos, 14), {
+      color: '#fff', weight: 4, opacity: 0.9,
+    }).addTo(map);
+    curve.bringToBack(); // under the dots, on top of the track/stations
+    connectorLayers.push(curve);
+  }
+}
+
 function renderTrains(trains) {
+  lastTrains = trains;
   trainLayers.forEach(l => map.removeLayer(l));
   trainLayers = [];
 
@@ -171,13 +211,12 @@ function renderTrains(trains) {
     }).addTo(map);
     corrected.bindTooltip(tooltipHtml(t, 'corrected'), { className: 'train-tooltip', direction: 'top', sticky: true });
 
-    const line = L.polyline([t.raw_pos, t.corrected_pos], {
-      color: '#fff', weight: 1, opacity: 0.4, dashArray: '2,4',
-    }).addTo(map);
     raw.bringToFront();
     corrected.bringToFront();
-    trainLayers.push(raw, corrected, line);
+    trainLayers.push(raw, corrected);
   }
+
+  drawConnectors();
 }
 
 let isLive = true;
@@ -185,12 +224,12 @@ let isLive = true;
 let latestRequestId = 0;
 
 function refreshTrains() {
-  if (!isLive) return;  // paused while scrubbing history
+  if (!isLive) return; 
   const requestId = ++latestRequestId;
   fetch('/api/live_map')
     .then(r => r.json())
     .then(data => {
-      if (requestId !== latestRequestId) return;  // superseded by a newer request
+      if (requestId !== latestRequestId) return; 
       if (data.error) {
         document.getElementById('status').textContent = 'Error: ' + data.error;
         return;
@@ -198,7 +237,7 @@ function refreshTrains() {
       renderTrains(data.trains);
       const now = new Date().toLocaleTimeString();
       document.getElementById('status').textContent =
-        `${data.trains.length} active trains — updated ${now}`;
+        `${data.trains.length} active trains tracked | updated ${now}`;
     })
     .catch(() => {
       if (requestId !== latestRequestId) return;
@@ -212,14 +251,14 @@ function fetchHistorical(t) {
   fetch(url)
     .then(r => r.json())
     .then(data => {
-      if (requestId !== latestRequestId) return;  // superseded by a newer request
+      if (requestId !== latestRequestId) return; 
       if (data.error) {
         document.getElementById('status').textContent = 'Error: ' + data.error;
         return;
       }
       renderTrains(data.trains);
       document.getElementById('status').textContent =
-        `${data.trains.length} trains as of ${t.toLocaleString()}`;
+        `${data.trains.length} trains | as of ${t.toLocaleString()}`;
     })
     .catch(() => {
       if (requestId !== latestRequestId) return;
@@ -248,7 +287,7 @@ function setLiveMode(live) {
   liveBtn.textContent = live ? 'Live' : 'Go Live';
   if (live) {
     slider.value = 0;
-    timeLabel.innerHTML = 'Live &mdash; showing right now';
+    timeLabel.innerHTML = 'Live';
     refreshTrains();
   }
 }
@@ -260,7 +299,7 @@ slider.addEventListener('input', () => {
   liveBtn.classList.toggle('is-live', isLive);
   liveBtn.textContent = isLive ? 'Live' : 'Go Live';
   timeLabel.innerHTML = minutesAgo === 0
-    ? 'Live &mdash; showing right now'
+    ? 'Live'
     : `<b>${t.toLocaleString()}</b> (${formatAgo(minutesAgo)})`;
 
   clearTimeout(debounceHandle);
@@ -274,6 +313,14 @@ slider.addEventListener('input', () => {
 });
 
 liveBtn.addEventListener('click', () => setLiveMode(true));
+
+const connectorToggle = document.getElementById('connectorToggle');
+connectorToggle.addEventListener('click', () => {
+  showConnectors = !showConnectors;
+  connectorToggle.classList.toggle('is-live', showConnectors);
+  connectorToggle.textContent = showConnectors ? 'Connectors: On' : 'Connectors: Off';
+  drawConnectors(); // redraw immediately from cached data, no new fetch needed
+});
 
 function updateSliderCap() {
   fetch('/api/data_range')
