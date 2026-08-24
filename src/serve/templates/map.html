@@ -63,10 +63,10 @@ function drawShapes(shapesByRoute) {
     }
   }
   if (allPoints.length && !boundsFitted) {
-    const bounds = L.latLngBounds(allPoints).pad(0.08);
+    const bounds = L.latLngBounds(allPoints).pad(0.03);
     map.fitBounds(bounds);
     map.setMinZoom(map.getZoom());
-    map.setMaxBounds(map.getBounds().pad(0.15));
+    map.setMaxBounds(map.getBounds().pad(0.05));
     boundsFitted = true;
   }
 }
