@@ -70,6 +70,16 @@ function drawShapes(shapesByRoute) {
   }
 }
 
+function drawStations(stations) {
+  for (const s of stations) {
+    const color = ROUTE_COLORS[s.route_id] || '#888';
+    const marker = L.circleMarker([s.lat, s.lon], {
+      radius: 9, color: '#fff', weight: 2, fillColor: color, fillOpacity: 0.9,
+    }).addTo(map);
+    marker.bindTooltip(s.stop_name, { className: 'train-tooltip', direction: 'top' });
+  }
+}
+
 function tooltipHtml(t, kind) {
   const time = kind === 'raw' ? t.raw_min : t.corrected_min;
   const adjClass = t.adjustment_sec > 0 ? 'later' : (t.adjustment_sec < 0 ? 'earlier' : '');
@@ -128,7 +138,10 @@ function refreshTrains() {
 
 fetch('/api/shapes')
   .then(r => r.json())
-  .then(drawShapes);
+  .then(drawShapes)
+  .then(() => fetch('/api/stations'))
+  .then(r => r.json())
+  .then(drawStations);
 
 refreshTrains();
 setInterval(refreshTrains, 5000);

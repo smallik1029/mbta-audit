@@ -27,6 +27,20 @@ def _haversine_m(lat1, lon1, lat2, lon2) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
+def load_stations() -> list[dict]:
+    """one marker per station, not per platform"""
+    latlon = pd.read_parquet(GTFS_DIR / "ro_stop_latlon.parquet")
+    stop_times = pd.read_parquet(GTFS_DIR / "ro_stop_times.parquet")[["trip_id", "stop_id"]]
+    trip_route = pd.read_parquet(GTFS_DIR / "ro_trip_route.parquet")[["trip_id", "route_id"]]
+    stop_route = stop_times.merge(trip_route, on="trip_id")[["stop_id", "route_id"]].drop_duplicates()
+
+    merged = latlon.merge(stop_route, on="stop_id", how="left")
+    grouped = merged.groupby("stop_name").agg(
+        lat=("stop_lat", "mean"), lon=("stop_lon", "mean"), route_id=("route_id", "first"),
+    ).reset_index()
+    return grouped.to_dict(orient="records")
+
+
 def load_shapes() -> dict:
     shapes = pd.read_parquet(GTFS_DIR / "ro_shapes.parquet")
     trip_route = pd.read_parquet(GTFS_DIR / "ro_trip_route.parquet")

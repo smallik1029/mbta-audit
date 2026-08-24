@@ -4,13 +4,14 @@ from flask import Flask, jsonify, render_template, request
 
 from src import config, db
 from src.serve.correction import get_corrected_predictions, load_lookup
-from src.serve.live_map import ScheduleIndex, ShapeIndex, build_live_trains, load_shapes
+from src.serve.live_map import ScheduleIndex, ShapeIndex, build_live_trains, load_shapes, load_stations
 
 app = Flask(__name__)
 _lookup = None
 _schedule = None
 _shape_index = None
 _shapes = None
+_stations = None
 
 
 def lookup() -> dict:
@@ -41,6 +42,13 @@ def shapes() -> dict:
     return _shapes
 
 
+def stations() -> list:
+    global _stations
+    if _stations is None:
+        _stations = load_stations()
+    return _stations
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -49,6 +57,11 @@ def index():
 @app.route("/map")
 def map_page():
     return render_template("map.html")
+
+
+@app.route("/api/stations")
+def api_stations():
+    return jsonify(stations())
 
 
 @app.route("/api/shapes")
