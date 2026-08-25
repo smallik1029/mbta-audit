@@ -139,18 +139,32 @@ function drawStations(stations) {
   }
 }
 
+const CONFIDENCE_LABELS = {
+  stop: "this stop's history",
+  route: "this line's history",
+  global: 'system-wide history',
+  none: 'no history available',
+};
+
+function adjustmentSentence(adjustmentSec, confidence) {
+  const basis = CONFIDENCE_LABELS[confidence] || confidence;
+  if (adjustmentSec === 0) {
+    return `We agree with MBTA's time, based on ${basis}.`;
+  }
+  const direction = adjustmentSec > 0 ? 'later' : 'earlier';
+  const cls = adjustmentSec > 0 ? 'later' : 'earlier';
+  return `We think it'll actually arrive <span class="${cls}"><b>${Math.abs(adjustmentSec)}s ${direction}</b></span> than MBTA says, based on ${basis}.`;
+}
+
 function tooltipHtml(t, kind) {
   const time = kind === 'raw' ? t.raw_min : t.corrected_min;
-  const adjClass = t.adjustment_sec > 0 ? 'later' : (t.adjustment_sec < 0 ? 'earlier' : '');
-  const adjSign = t.adjustment_sec > 0 ? '+' : '';
   return `
     <b>${t.route_id} Line</b> &rarr; ${t.headsign}<br>
     Next stop: ${t.next_stop_name}<br>
     <br>
     MBTA's official time: ${t.raw_min.toFixed(1)} min<br>
     Our estimated time: <b>${t.corrected_min.toFixed(1)} min</b><br>
-    Adjustment: <span class="${adjClass}">${adjSign}${t.adjustment_sec}s</span>
-      (${t.confidence}-level history)<br>
+    ${adjustmentSentence(t.adjustment_sec, t.confidence)}<br>
     <br>
     <i>Showing: ${kind === 'raw' ? "MBTA's official time" : "our estimated time"} (${time.toFixed(1)} min out)</i>
   `;
