@@ -13,6 +13,7 @@
     --muted: #9aa0ab;
     --red: #DA291C;
     --orange: #ED8B00;
+    --blue: #003DA5;
     --green: #2e7d32;
   }
   * { box-sizing: border-box; }
@@ -21,21 +22,74 @@
     font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg);
     color: var(--text);
-    padding: 2rem 1rem 4rem;
+    padding: 0 4vw 4rem;
   }
-  .wrap { max-width: 720px; margin: 0 auto; }
-  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
-  p.sub { color: var(--muted); margin-top: 0; margin-bottom: 2rem; font-size: 0.95rem; }
+  .topnav {
+    height: 52px; background: var(--panel); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; gap: 3rem;
+    margin: 0 -4vw 3rem;
+  }
+  .topnav a {
+    position: relative; color: var(--muted); text-decoration: none; font-weight: 600;
+    font-size: 0.9rem; padding: 0.4rem 0.1rem; transition: color 0.2s ease;
+  }
+  .topnav a::after {
+    content: ''; position: absolute; left: 50%; bottom: -2px; height: 2px; width: 100%;
+    background: var(--red); transform: translateX(-50%) scaleX(0);
+    transition: transform 0.25s ease;
+  }
+  .topnav a.active::after { transform: translateX(-50%) scaleX(1); }
+  .topnav a:hover { color: var(--text); }
+  .topnav a:hover::after { transform: translateX(-50%) scaleX(1); }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 2rem; margin-bottom: 0.4rem; }
+  p.sub { color: var(--muted); margin-top: 0; margin-bottom: 2.5rem; font-size: 1.05rem; max-width: 700px; line-height: 1.5; }
+  .line-filter { display: flex; gap: 0.6rem; margin-bottom: 1rem; }
+  .line-chip {
+    background: #1f232c; color: var(--muted); border: 1.5px solid var(--border);
+    border-radius: 999px; padding: 0.45rem 1.1rem; font-size: 0.9rem; font-weight: 600;
+    cursor: pointer; transition: all 0.15s ease;
+  }
+  .line-chip:hover { border-color: var(--muted); }
+  .line-chip[data-route="Red"].active { background: var(--red); border-color: var(--red); color: #fff; }
+  .line-chip[data-route="Orange"].active { background: var(--orange); border-color: var(--orange); color: #fff; }
+  .line-chip[data-route="Blue"].active { background: var(--blue); border-color: var(--blue); color: #fff; }
   .controls {
     display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 10px; padding: 1rem;
+    border-radius: 10px; padding: 1.25rem;
   }
-  select, button {
+  input, button {
     background: #1f232c; color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 0.55rem 0.75rem; font-size: 0.95rem;
+    border-radius: 6px; padding: 0.65rem 0.9rem; font-size: 1rem;
   }
-  select { flex: 1; min-width: 200px; }
+  .autocomplete { position: relative; flex: 1; min-width: 260px; max-width: 420px; }
+  .autocomplete input { width: 100%; }
+  .autocomplete input:focus { outline: none; border-color: var(--red); }
+  .autocomplete-list {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+    background: #1f232c; border: 1px solid var(--border); border-radius: 8px;
+    max-height: 0; opacity: 0; overflow-y: auto; z-index: 10;
+    transform: translateY(-6px); pointer-events: none;
+    transition: max-height 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+                opacity 0.2s ease, transform 0.2s ease;
+    scrollbar-width: thin; scrollbar-color: #4dabf7 transparent;
+  }
+  .autocomplete-list.open {
+    max-height: 280px; opacity: 1; transform: translateY(0); pointer-events: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .autocomplete-list::-webkit-scrollbar { width: 8px; }
+  .autocomplete-list::-webkit-scrollbar-track { background: transparent; }
+  .autocomplete-list::-webkit-scrollbar-thumb { background: #4dabf7; border-radius: 4px; }
+  .autocomplete-list::-webkit-scrollbar-thumb:hover { background: #6cc0ff; }
+  .autocomplete-item {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.55rem 0.9rem; cursor: pointer; font-size: 0.95rem;
+  }
+  .autocomplete-item:hover, .autocomplete-item.highlighted { background: #2a2e38; }
+  .autocomplete-item .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .autocomplete-empty { padding: 0.6rem 0.9rem; color: var(--muted); font-size: 0.9rem; }
   button {
     background: var(--red); border-color: var(--red); color: white;
     font-weight: 600; cursor: pointer;
@@ -58,51 +112,180 @@
 </style>
 </head>
 <body>
+<nav class="topnav">
+  <a href="/">Live Map</a>
+  <a href="/corrector" class="active">Single-Stop Lookup</a>
+</nav>
 <div class="wrap">
   <h1>MBTA Prediction Corrector</h1>
   <p class="sub">
-    Pick a Red/Orange Line stop. See the MBTA's live prediction next to a
-    bias-corrected estimate, learned from historical prediction accuracy at
-    that exact stop.
+    We track how far off the MBTA's own predictions have been in the past, at
+    stops across the Red, Orange, and Blue Lines, and use that history to
+    make a corrected estimate. Pick a stop below to compare the MBTA's
+    official time with our estimate, live.
   </p>
 
+  <div class="line-filter" id="lineFilter">
+    <button type="button" class="line-chip active" data-route="Red">Red Line</button>
+    <button type="button" class="line-chip active" data-route="Orange">Orange Line</button>
+    <button type="button" class="line-chip active" data-route="Blue">Blue Line</button>
+  </div>
+
   <div class="controls">
-    <select id="stopSelect"><option>Loading stops...</option></select>
+    <div class="autocomplete">
+      <input type="text" id="stopInput" placeholder="Loading stops..." autocomplete="off" disabled>
+      <div class="autocomplete-list" id="autocompleteList"></div>
+    </div>
     <button id="goBtn" disabled>Get predictions</button>
   </div>
   <div id="status"></div>
 
   <table id="resultsTable" style="display:none">
     <thead>
-      <tr><th>Route</th><th>MBTA says</th><th>Corrected</th><th>Adjustment</th></tr>
+      <tr><th>Route</th><th>MBTA's official time</th><th>Our estimated time</th><th>Based on</th></tr>
     </thead>
     <tbody id="resultsBody"></tbody>
   </table>
 </div>
 
 <script>
-const stopSelect = document.getElementById('stopSelect');
+const stopInput = document.getElementById('stopInput');
+const autocompleteList = document.getElementById('autocompleteList');
 const goBtn = document.getElementById('goBtn');
 const statusEl = document.getElementById('status');
 const table = document.getElementById('resultsTable');
 const tbody = document.getElementById('resultsBody');
+const lineFilter = document.getElementById('lineFilter');
+
+const ROUTE_DOT_COLORS = { Red: '#DA291C', Orange: '#ED8B00', Blue: '#003DA5' };
+
+let allStops = [];
+const selectedRoutes = new Set(['Red', 'Orange', 'Blue']);
+let selectedStop = null;
+let highlightedIndex = -1;
+let currentMatches = [];
+
+function visibleStops() {
+  return allStops.filter(s => selectedRoutes.has(s.route_id));
+}
+
+function closeList() {
+  autocompleteList.classList.remove('open');
+  autocompleteList.innerHTML = '';
+  highlightedIndex = -1;
+  currentMatches = [];
+}
+
+function selectStop(s) {
+  selectedStop = s;
+  stopInput.value = `${s.stop_name} (${s.route_id})`;
+  goBtn.disabled = false;
+  closeList();
+}
+
+function renderMatches(query) {
+  const q = query.trim().toLowerCase();
+  currentMatches = visibleStops()
+    .filter(s => s.stop_name.toLowerCase().includes(q))
+    .sort((a, b) => a.stop_name.localeCompare(b.stop_name));
+  highlightedIndex = -1;
+
+  if (!currentMatches.length) {
+    autocompleteList.innerHTML = `<div class="autocomplete-empty">No matching stops</div>`;
+    autocompleteList.classList.add('open');
+    return;
+  }
+
+  autocompleteList.innerHTML = currentMatches.map((s, i) => `
+    <div class="autocomplete-item" data-index="${i}">
+      <span class="dot" style="background:${ROUTE_DOT_COLORS[s.route_id] || '#888'}"></span>
+      ${s.stop_name}
+    </div>
+  `).join('');
+  autocompleteList.classList.add('open');
+}
+
+function updateHighlight() {
+  [...autocompleteList.children].forEach((el, i) => {
+    el.classList.toggle('highlighted', i === highlightedIndex);
+  });
+}
+
+stopInput.addEventListener('input', () => {
+  selectedStop = null;
+  goBtn.disabled = true;
+  renderMatches(stopInput.value);
+});
+
+stopInput.addEventListener('focus', () => {
+  if (selectedStop) {
+    selectedStop = null;
+    stopInput.value = '';
+    goBtn.disabled = true;
+  }
+  renderMatches(stopInput.value);
+});
+
+stopInput.addEventListener('keydown', (e) => {
+  if (!autocompleteList.classList.contains('open')) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    highlightedIndex = Math.min(highlightedIndex + 1, currentMatches.length - 1);
+    updateHighlight();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    highlightedIndex = Math.max(highlightedIndex - 1, 0);
+    updateHighlight();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const pick = currentMatches[highlightedIndex] ?? currentMatches[0];
+    if (pick) selectStop(pick);
+  } else if (e.key === 'Escape') {
+    closeList();
+  }
+});
+
+autocompleteList.addEventListener('click', (e) => {
+  const item = e.target.closest('.autocomplete-item');
+  if (!item) return;
+  selectStop(currentMatches[Number(item.dataset.index)]);
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.autocomplete')) closeList();
+});
+
+lineFilter.addEventListener('click', (e) => {
+  const chip = e.target.closest('.line-chip');
+  if (!chip) return;
+  const route = chip.dataset.route;
+  if (selectedRoutes.has(route)) {
+    selectedRoutes.delete(route);
+    chip.classList.remove('active');
+  } else {
+    selectedRoutes.add(route);
+    chip.classList.add('active');
+  }
+  if (selectedStop && !selectedRoutes.has(selectedStop.route_id)) {
+    selectedStop = null;
+    stopInput.value = '';
+    goBtn.disabled = true;
+  }
+  if (autocompleteList.classList.contains('open')) renderMatches(stopInput.value);
+});
 
 fetch('/api/stops')
   .then(r => r.json())
   .then(stops => {
-    stopSelect.innerHTML = '';
-    for (const s of stops) {
-      const opt = document.createElement('option');
-      opt.value = JSON.stringify({ stop_id: s.stop_id, route_id: s.route_id });
-      opt.textContent = `${s.stop_name} (${s.route_id})`;
-      stopSelect.appendChild(opt);
-    }
-    goBtn.disabled = false;
+    allStops = stops;
+    stopInput.disabled = false;
+    stopInput.placeholder = 'Search for a stop...';
   })
   .catch(() => { statusEl.textContent = 'Failed to load stop list.'; });
 
 goBtn.addEventListener('click', () => {
-  const { stop_id, route_id } = JSON.parse(stopSelect.value);
+  if (!selectedStop) return;
+  const { stop_id, route_id } = selectedStop;
   goBtn.disabled = true;
   statusEl.textContent = 'Fetching live predictions...';
   table.style.display = 'none';
@@ -121,15 +304,26 @@ goBtn.addEventListener('click', () => {
       }
       statusEl.textContent = `${data.predictions.length} live prediction(s), just fetched.`;
       tbody.innerHTML = '';
+
+      const CONFIDENCE_LABELS = {
+        stop: "this stop's history",
+        route: "this line's history",
+        global: 'system-wide history',
+        none: 'no history available',
+      };
+
       for (const p of data.predictions) {
         const tr = document.createElement('tr');
         const adjClass = p.adjustment_sec > 0 ? 'adj-later' : (p.adjustment_sec < 0 ? 'adj-earlier' : '');
+        const basis = CONFIDENCE_LABELS[p.confidence] || p.confidence;
+        const direction = p.adjustment_sec > 0 ? `${p.adjustment_sec}s later` :
+          p.adjustment_sec < 0 ? `${Math.abs(p.adjustment_sec)}s earlier` : 'no change';
         tr.innerHTML = `
           <td>${p.route_id}</td>
           <td class="raw">${p.raw_min.toFixed(1)} min</td>
           <td class="corrected">${p.corrected_min.toFixed(1)} min</td>
-          <td class="${adjClass}">${p.adjustment_sec > 0 ? '+' : ''}${p.adjustment_sec}s
-            <span class="badge">${p.confidence}</span></td>
+          <td class="${adjClass}">${direction}
+            <span class="badge">${basis} (${p.sample_size.toLocaleString()})</span></td>
         `;
         tbody.appendChild(tr);
       }

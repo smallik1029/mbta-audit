@@ -7,12 +7,32 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   html, body { margin: 0; height: 100%; background: #0f1115; }
-  #map { position: absolute; inset: 0; }
+  .topnav {
+    position: absolute; top: 0; left: 0; right: 0; height: 52px; z-index: 2000;
+    background: #171a21ee; border-bottom: 1px solid #2a2e38;
+    display: flex; align-items: center; justify-content: center; gap: 3rem;
+    font-family: -apple-system, "Segoe UI", sans-serif;
+  }
+  .topnav a {
+    position: relative; color: #9aa0ab; text-decoration: none; font-weight: 600;
+    font-size: 0.9rem; padding: 0.4rem 0.1rem; transition: color 0.2s ease;
+  }
+  .topnav a::after {
+    content: ''; position: absolute; left: 50%; bottom: -2px; height: 2px; width: 100%;
+    background: #DA291C; transform: translateX(-50%) scaleX(0);
+    transition: transform 0.25s ease;
+  }
+  .topnav a.active::after { transform: translateX(-50%) scaleX(1); }
+  .topnav a:hover { color: #fff; }
+  .topnav a:hover::after { transform: translateX(-50%) scaleX(1); }
+  #map { position: absolute; top: 52px; left: 0; right: 0; bottom: 0; }
+  .panel-stack {
+    position: absolute; top: 64px; left: 12px; z-index: 1000;
+    display: flex; flex-direction: column; gap: 10px; max-width: 300px;
+  }
   .panel {
-    position: absolute; top: 12px; left: 12px; z-index: 1000;
     background: #171a21ee; border: 1px solid #2a2e38; border-radius: 10px;
     padding: 0.9rem 1.1rem; color: #e8e9ec; font-family: -apple-system, "Segoe UI", sans-serif;
-    max-width: 300px;
   }
   .panel h1 { font-size: 1.05rem; margin: 0 0 0.4rem; }
   .panel p { font-size: 0.82rem; color: #9aa0ab; margin: 0.3rem 0; line-height: 1.4; }
@@ -81,13 +101,19 @@
 </style>
 </head>
 <body>
+<nav class="topnav">
+  <a href="/" class="active">Live Map</a>
+  <a href="/corrector">Single-Stop Lookup</a>
+</nav>
 <div id="map"></div>
-<div class="panel">
-  <h1>MBTA Live Prediction Map</h1>
-  <p><span class="legend-dot" style="background:#ffffff"></span>Solid = MBTA's official time</p>
-  <p><span class="legend-dot" style="background:#ffffff; opacity:0.35"></span>Hollow/faint = Our estimated time</p>
-  <p>Hover a dot for details. The gap between each pair is the correction in action, right now.</p>
-  <div class="status" id="status">Loading...</div>
+<div class="panel-stack">
+  <div class="panel">
+    <h1>MBTA Live Prediction Map</h1>
+    <p><span class="legend-dot" style="background:#ffffff"></span>Solid = MBTA's official time</p>
+    <p><span class="legend-dot" style="background:#ffffff; opacity:0.35"></span>Hollow/faint = Our estimated time</p>
+    <p>Hover a dot for details. The gap between each pair is the correction in action, right now.</p>
+    <div class="status" id="status">Loading...</div>
+  </div>
 </div>
 
 <div class="time-panel">

@@ -35,7 +35,7 @@ def lookup() -> dict:
 
 
 def map_lookup() -> dict:
-    """Red/Orange + Blue combined, in memory only, for the live map's"""
+    """Red/Orange + Blue combined, in memory only. Used by both the map and"""
     global _map_lookup
     if _map_lookup is None:
         if BLUE_ARTIFACTS_DIR.exists():
@@ -74,13 +74,13 @@ def stations() -> list:
 
 
 @app.route("/")
-def index():
-    return render_template("index.html")
-
-
-@app.route("/map")
 def map_page():
     return render_template("map.html")
+
+
+@app.route("/corrector")
+def index():
+    return render_template("index.html")
 
 
 @app.route("/api/stations")
@@ -135,7 +135,7 @@ def api_historical_map():
 @app.route("/api/stops")
 def api_stops():
     """stops we actually have history for, so every dropdown option works"""
-    by_stop = lookup()["by_stop"]
+    by_stop = map_lookup()["by_stop"]
     stop_route = by_stop[["route_id", "stop_id"]].drop_duplicates()
 
     conn = db.connect()
@@ -157,7 +157,7 @@ def api_predict():
         return jsonify({"error": "stop_id is required"}), 400
 
     try:
-        results = get_corrected_predictions(stop_id, route_id, lookup())
+        results = get_corrected_predictions(stop_id, route_id, map_lookup())
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
 
