@@ -55,8 +55,10 @@ CREATE TABLE IF NOT EXISTS actual_arrivals (
     actual_arrival      TEXT NOT NULL,
     incoming_at         TEXT,
     detection_bound_sec REAL,
-    UNIQUE (trip_id, stop_id)
+    service_date        TEXT NOT NULL,
+    UNIQUE (trip_id, stop_id, service_date)
 );
+CREATE INDEX IF NOT EXISTS idx_arr_trip_stop ON actual_arrivals (trip_id, stop_id);
 
 CREATE TABLE IF NOT EXISTS prediction_outcomes (
     id                INTEGER PRIMARY KEY,
@@ -70,7 +72,8 @@ CREATE TABLE IF NOT EXISTS prediction_outcomes (
     lead_time_sec     REAL NOT NULL,
     error_sec         REAL NOT NULL,
     hour_local        INTEGER,
-    is_rush_hour      INTEGER
+    is_rush_hour      INTEGER,
+    UNIQUE (trip_id, stop_id, observed_at)
 );
 CREATE INDEX IF NOT EXISTS idx_out_lead  ON prediction_outcomes (lead_time_sec);
 CREATE INDEX IF NOT EXISTS idx_out_route ON prediction_outcomes (route_id, hour_local);

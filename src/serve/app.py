@@ -4,7 +4,7 @@ import requests
 from flask import Flask, jsonify, render_template, request
 
 from src import config, db
-from src.serve.correction import get_corrected_predictions, load_lookup, merge_lookups
+from src.serve.correction import ARTIFACTS_DIR, get_corrected_predictions, load_lookup, merge_lookups
 from src.serve.live_map import (
     ScheduleIndex,
     ShapeIndex,
@@ -19,29 +19,44 @@ BLUE_ARTIFACTS_DIR = config.ROOT / "model_artifacts_blue"
 
 app = Flask(__name__)
 _lookup = None
+_lookup_mtime = None
 _map_lookup = None
+_map_lookup_mtime = None
 _schedule = None
 _shape_index = None
 _shapes = None
 _stations = None
 
 
+def _newest_csv_mtime(artifacts_dir) -> float | None:
+    """newest mtime across the bias csvs, or None if the dir is not there"""
+    if not artifacts_dir.exists():
+        return None
+    paths = [artifacts_dir / f"bias_{key}.csv" for key in ("by_stop", "by_route", "by_bucket")]
+    mtimes = [p.stat().st_mtime for p in paths if p.exists()]
+    return max(mtimes) if mtimes else None
+
+
 def lookup() -> dict:
     """the one lookup table. reloads itself when the csvs change on disk"""
-    global _lookup
-    if _lookup is None:
+    global _lookup, _lookup_mtime
+    current_mtime = _newest_csv_mtime(ARTIFACTS_DIR)
+    if _lookup is None or current_mtime != _lookup_mtime:
         _lookup = load_lookup()
+        _lookup_mtime = current_mtime
     return _lookup
 
 
 def map_lookup() -> dict:
     """Red/Orange + Blue combined, in memory only. Used by both the map and"""
-    global _map_lookup
-    if _map_lookup is None:
+    global _map_lookup, _map_lookup_mtime
+    current_mtime = (_newest_csv_mtime(ARTIFACTS_DIR), _newest_csv_mtime(BLUE_ARTIFACTS_DIR))
+    if _map_lookup is None or current_mtime != _map_lookup_mtime:
         if BLUE_ARTIFACTS_DIR.exists():
             _map_lookup = merge_lookups(lookup(), load_lookup(BLUE_ARTIFACTS_DIR))
         else:
             _map_lookup = lookup()
+        _map_lookup_mtime = current_mtime
     return _map_lookup
 
 
