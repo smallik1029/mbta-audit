@@ -25,11 +25,20 @@ def fit_lookup(data: pd.DataFrame) -> dict:
     return {"by_stop": by_stop, "by_route": by_route, "by_bucket": by_bucket}
 
 
-def export_lookup_csv(lookup: dict, out_dir) -> None:
+LOOKUP_KEYS = {
+    "by_stop": ["route_id", "stop_id", "lead_bucket"],
+    "by_route": ["route_id", "lead_bucket"],
+    "by_bucket": ["lead_bucket"],
+}
+
+
+def export_lookup_csv(lookup: dict, data: pd.DataFrame, out_dir) -> None:
     """the small csvs the serving code reads. includes n so the ui can show what backs each number"""
     out_dir.mkdir(parents=True, exist_ok=True)
     for key, series in lookup.items():
-        series.to_frame("bias_sec").reset_index().to_csv(out_dir / f"bias_{key}.csv", index=False)
+        counts = data.groupby(LOOKUP_KEYS[key]).size().rename("n")
+        merged = series.to_frame("bias_sec").join(counts)
+        merged.reset_index().to_csv(out_dir / f"bias_{key}.csv", index=False)
 
 
 def main() -> None:
@@ -47,7 +56,7 @@ def main() -> None:
 
     final_lookup = fit_lookup(df)
     artifacts_dir = config.ROOT / "model_artifacts"
-    export_lookup_csv(final_lookup, artifacts_dir)
+    export_lookup_csv(final_lookup, df, artifacts_dir)
     print(f"production lookup table: {len(final_lookup['by_stop']):,} cells, "
           f"fit on all {len(df):,} rows -> {artifacts_dir}/")
 

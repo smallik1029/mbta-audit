@@ -99,8 +99,6 @@ def main() -> None:
     print(f"train: {len(train):,} rows, test: {len(test):,} rows")
 
     lookup = fit_lookup(train)
-    export_lookup_csv(lookup, ARTIFACTS_DIR)
-    print(f"lookup exported to {ARTIFACTS_DIR}/ (isolated, not model_artifacts/)")
 
     corrected_error = correct(test, lookup)
     overall_baseline = test["error_sec"].abs().median()
@@ -116,6 +114,11 @@ def main() -> None:
         out_path = config.ROOT / "reports" / "blue_model_improvement.png"
         plot_comparison(table, str(out_path))
         print(f"\nSaved -> {out_path}")
+
+    final_lookup = fit_lookup(df)
+    export_lookup_csv(final_lookup, df, ARTIFACTS_DIR)
+    print(f"\nproduction lookup exported to {ARTIFACTS_DIR}/ "
+          f"(fit on all {len(df):,} rows, isolated from model_artifacts/)")
 
 
 if __name__ == "__main__":

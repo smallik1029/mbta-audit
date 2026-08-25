@@ -146,14 +146,15 @@ const CONFIDENCE_LABELS = {
   none: 'no history available',
 };
 
-function adjustmentSentence(adjustmentSec, confidence) {
+function adjustmentSentence(adjustmentSec, confidence, sampleSize) {
   const basis = CONFIDENCE_LABELS[confidence] || confidence;
+  const n = sampleSize.toLocaleString();
   if (adjustmentSec === 0) {
-    return `We agree with MBTA's time, based on ${basis}.`;
+    return `We agree with MBTA's time, based on ${basis} (${n} past observations).`;
   }
   const direction = adjustmentSec > 0 ? 'later' : 'earlier';
   const cls = adjustmentSec > 0 ? 'later' : 'earlier';
-  return `We think it'll actually arrive <span class="${cls}"><b>${Math.abs(adjustmentSec)}s ${direction}</b></span> than MBTA says, based on ${basis}.`;
+  return `We think it'll actually arrive <span class="${cls}"><b>${Math.abs(adjustmentSec)}s ${direction}</b></span> than MBTA says, based on ${basis} (${n} past observations).`;
 }
 
 function tooltipHtml(t, kind) {
@@ -164,7 +165,7 @@ function tooltipHtml(t, kind) {
     <br>
     MBTA's official time: ${t.raw_min.toFixed(1)} min<br>
     Our estimated time: <b>${t.corrected_min.toFixed(1)} min</b><br>
-    ${adjustmentSentence(t.adjustment_sec, t.confidence)}<br>
+    ${adjustmentSentence(t.adjustment_sec, t.confidence, t.sample_size)}<br>
     <br>
     <i>Showing: ${kind === 'raw' ? "MBTA's official time" : "our estimated time"} (${time.toFixed(1)} min out)</i>
   `;

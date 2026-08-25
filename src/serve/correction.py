@@ -36,25 +36,26 @@ def lead_bucket(lead_time_sec: float) -> int:
     return int(lead_min // LEAD_BUCKET_WIDTH_MIN * LEAD_BUCKET_WIDTH_MIN)
 
 
-def lookup_bias(lookup: dict, route_id: str, stop_id: str, bucket: int) -> tuple[float, str]:
+def lookup_bias(lookup: dict, route_id: str, stop_id: str, bucket: int) -> tuple[float, str, int]:
+    """returns (bias_sec, confidence, sample_count)"""
     by_stop = lookup["by_stop"]
     hit = by_stop[
         (by_stop.route_id == route_id) & (by_stop.stop_id == stop_id) & (by_stop.lead_bucket == bucket)
     ]
     if len(hit):
-        return float(hit.iloc[0]["bias_sec"]), "stop"
+        return float(hit.iloc[0]["bias_sec"]), "stop", int(hit.iloc[0]["n"])
 
     by_route = lookup["by_route"]
     hit = by_route[(by_route.route_id == route_id) & (by_route.lead_bucket == bucket)]
     if len(hit):
-        return float(hit.iloc[0]["bias_sec"]), "route"
+        return float(hit.iloc[0]["bias_sec"]), "route", int(hit.iloc[0]["n"])
 
     by_bucket = lookup["by_bucket"]
     hit = by_bucket[by_bucket.lead_bucket == bucket]
     if len(hit):
-        return float(hit.iloc[0]["bias_sec"]), "global"
+        return float(hit.iloc[0]["bias_sec"]), "global", int(hit.iloc[0]["n"])
 
-    return 0.0, "none"
+    return 0.0, "none", 0
 
 
 def fetch_live_predictions(stop_id: str, route_id: str | None) -> list[dict]:
@@ -96,7 +97,7 @@ def get_corrected_predictions(stop_id: str, route_id: str | None, lookup: dict) 
         rel = (item.get("relationships") or {}).get("route") or {}
         this_route = (rel.get("data") or {}).get("id", route_id or "?")
         bucket = lead_bucket(lead_sec)
-        bias, level = lookup_bias(lookup, this_route, stop_id, bucket)
+        bias, level, n = lookup_bias(lookup, this_route, stop_id, bucket)
         corrected_lead_sec = lead_sec - bias
 
         results.append({
@@ -105,6 +106,7 @@ def get_corrected_predictions(stop_id: str, route_id: str | None, lookup: dict) 
             "corrected_min": round(corrected_lead_sec / 60, 1),
             "adjustment_sec": round(-bias),
             "confidence": level,
+            "sample_size": n,
         })
 
     return results

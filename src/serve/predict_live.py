@@ -24,7 +24,8 @@ def main() -> None:
     for r in results:
         print(f"  [{r['route_id']}] MBTA says: {r['raw_min']:5.1f} min "
               f"-> Corrected: {r['corrected_min']:5.1f} min "
-              f"(adjustment: {r['adjustment_sec']:+d}s, based on {r['confidence']}-level history)")
+              f"(adjustment: {r['adjustment_sec']:+d}s, based on {r['confidence']}-level history, "
+              f"n={r['sample_size']:,})")
 
 
 if __name__ == "__main__":

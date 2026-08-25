@@ -184,7 +184,7 @@ def _compute_train_positions(
 
         route_id = pred["route_id"]
         bucket = lead_bucket(pred["lead_sec"])
-        bias, confidence = lookup_bias(lookup, route_id, pred["stop_id"], bucket)
+        bias, confidence, sample_size = lookup_bias(lookup, route_id, pred["stop_id"], bucket)
         corrected_lead_sec = pred["lead_sec"] - bias
 
         raw_frac = 1 - min(max(pred["lead_sec"] / leg["leg_duration_sec"], 0), 1)
@@ -207,6 +207,7 @@ def _compute_train_positions(
             "corrected_min": round(corrected_lead_sec / 60, 1),
             "adjustment_sec": round(-bias),
             "confidence": confidence,
+            "sample_size": sample_size,
         })
 
     return results
