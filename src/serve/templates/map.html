@@ -84,8 +84,8 @@
 <div id="map"></div>
 <div class="panel">
   <h1>MBTA Live Prediction Map</h1>
-  <p><span class="legend-dot" style="background:#ffffff"></span>Solid = MBTA says</p>
-  <p><span class="legend-dot" style="background:#ffffff; opacity:0.35"></span>Hollow/faint = our estimate</p>
+  <p><span class="legend-dot" style="background:#ffffff"></span>Solid = MBTA's official time</p>
+  <p><span class="legend-dot" style="background:#ffffff; opacity:0.35"></span>Hollow/faint = Our estimated time</p>
   <p>Hover a dot for details. The gap between each pair is the correction in action, right now.</p>
   <button class="live-btn is-live" id="connectorToggle" style="margin-top: 0.3rem;">Connectors: On</button>
   <div class="status" id="status">Loading...</div>
@@ -147,12 +147,12 @@ function tooltipHtml(t, kind) {
     <b>${t.route_id} Line</b> &rarr; ${t.headsign}<br>
     Next stop: ${t.next_stop_name}<br>
     <br>
-    MBTA says: ${t.raw_min.toFixed(1)} min<br>
-    Our estimate: <b>${t.corrected_min.toFixed(1)} min</b><br>
+    MBTA's official time: ${t.raw_min.toFixed(1)} min<br>
+    Our estimated time: <b>${t.corrected_min.toFixed(1)} min</b><br>
     Adjustment: <span class="${adjClass}">${adjSign}${t.adjustment_sec}s</span>
       (${t.confidence}-level history)<br>
     <br>
-    <i>Showing: ${kind === 'raw' ? "MBTA's" : "our"} position (${time.toFixed(1)} min out)</i>
+    <i>Showing: ${kind === 'raw' ? "MBTA's official time" : "our estimated time"} (${time.toFixed(1)} min out)</i>
   `;
 }
 
