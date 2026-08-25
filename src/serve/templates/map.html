@@ -87,7 +87,6 @@
   <p><span class="legend-dot" style="background:#ffffff"></span>Solid = MBTA's official time</p>
   <p><span class="legend-dot" style="background:#ffffff; opacity:0.35"></span>Hollow/faint = Our estimated time</p>
   <p>Hover a dot for details. The gap between each pair is the correction in action, right now.</p>
-  <button class="live-btn is-live" id="connectorToggle" style="margin-top: 0.3rem;">Connectors: On</button>
   <div class="status" id="status">Loading...</div>
 </div>
 
@@ -193,12 +192,10 @@ function curvedLatLngs(latlng0, latlng1, offsetPx) {
 
 let lastTrains = [];
 let connectorLayers = [];
-let showConnectors = true;
 
 function drawConnectors() {
   connectorLayers.forEach(l => map.removeLayer(l));
   connectorLayers = [];
-  if (!showConnectors) return;
 
   for (const t of lastTrains) {
     const curve = L.polyline(curvedLatLngs(t.raw_pos, t.corrected_pos, 14), {
@@ -328,14 +325,6 @@ slider.addEventListener('input', () => {
 });
 
 liveBtn.addEventListener('click', () => setLiveMode(true));
-
-const connectorToggle = document.getElementById('connectorToggle');
-connectorToggle.addEventListener('click', () => {
-  showConnectors = !showConnectors;
-  connectorToggle.classList.toggle('is-live', showConnectors);
-  connectorToggle.textContent = showConnectors ? 'Connectors: On' : 'Connectors: Off';
-  drawConnectors(); // redraw immediately from cached data, no new fetch needed
-});
 
 function updateSliderCap() {
   fetch('/api/data_range')
