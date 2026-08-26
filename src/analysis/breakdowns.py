@@ -10,16 +10,18 @@ from src import config, db
 LEAD_MIN_FOR_COMPARISON = 10
 TOLERANCE_MIN = 1.0
 
+VALIDATED_ROUTES = ("Red", "Orange")
+
 
 def load_outcomes() -> pd.DataFrame:
     """validated routes only"""
     conn = db.connect()
-    placeholders = ",".join("?" * len(config.ROUTES))
+    placeholders = ",".join("?" * len(VALIDATED_ROUTES))
     df = pd.read_sql_query(
         "SELECT route_id, lead_time_sec, error_sec, hour_local, is_rush_hour "
         f"FROM prediction_outcomes WHERE route_id IN ({placeholders})",
         conn,
-        params=config.ROUTES,
+        params=VALIDATED_ROUTES,
     )
     df["abs_error_sec"] = df["error_sec"].abs()
     return df

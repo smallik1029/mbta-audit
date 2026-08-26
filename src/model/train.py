@@ -4,15 +4,17 @@ import pandas as pd
 from src import config, db
 from src.model.features import add_lead_bucket, time_split
 
+VALIDATED_ROUTES = ("Red", "Orange")
+
 
 def load_outcomes() -> pd.DataFrame:
     conn = db.connect()
-    placeholders = ",".join("?" * len(config.ROUTES))
+    placeholders = ",".join("?" * len(VALIDATED_ROUTES))
     df = pd.read_sql_query(
         "SELECT route_id, stop_id, observed_at, lead_time_sec, error_sec "
         f"FROM prediction_outcomes WHERE route_id IN ({placeholders})",
         conn,
-        params=config.ROUTES,
+        params=VALIDATED_ROUTES,
     )
     df["observed_at"] = pd.to_datetime(df["observed_at"], utc=True, format="ISO8601")
     return add_lead_bucket(df)

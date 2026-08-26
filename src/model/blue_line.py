@@ -16,26 +16,22 @@ ARTIFACTS_DIR = config.ROOT / "model_artifacts_blue"
 
 
 def load_outcomes() -> pd.DataFrame:
+    """Joined in SQL (like match.py) rather than loaded separately and"""
     conn = db.connect()
-    arrivals = pd.read_sql_query(
-        "SELECT trip_id, stop_id, route_id, direction_id, actual_arrival "
-        "FROM actual_arrivals WHERE route_id = ?",
-        conn, params=[ROUTE],
+    df = pd.read_sql_query(
+        "SELECT p.observed_at, p.trip_id, p.stop_id, p.predicted_arrival, "
+        "p.schedule_relationship, a.route_id, a.direction_id, a.actual_arrival "
+        "FROM prediction_snapshots p "
+        "JOIN actual_arrivals a ON p.trip_id = a.trip_id AND p.stop_id = a.stop_id "
+        "WHERE p.predicted_arrival IS NOT NULL AND a.route_id = ? AND p.route_id = ?",
+        conn, params=[ROUTE, ROUTE],
     )
-    arrivals["actual_arrival"] = pd.to_datetime(arrivals["actual_arrival"], utc=True, format="ISO8601")
+    df = df[~df["schedule_relationship"].isin({"CANCELLED", "SKIPPED"})]
+    df["observed_at"] = pd.to_datetime(df["observed_at"], utc=True, format="ISO8601")
+    df["predicted_arrival"] = pd.to_datetime(df["predicted_arrival"], utc=True, format="ISO8601")
+    df["actual_arrival"] = pd.to_datetime(df["actual_arrival"], utc=True, format="ISO8601")
 
-    predictions = pd.read_sql_query(
-        "SELECT observed_at, trip_id, stop_id, predicted_arrival, schedule_relationship "
-        "FROM prediction_snapshots WHERE route_id = ? AND predicted_arrival IS NOT NULL",
-        conn, params=[ROUTE],
-    )
-    predictions = predictions[~predictions["schedule_relationship"].isin({"CANCELLED", "SKIPPED"})]
-    predictions["observed_at"] = pd.to_datetime(predictions["observed_at"], utc=True, format="ISO8601")
-    predictions["predicted_arrival"] = pd.to_datetime(
-        predictions["predicted_arrival"], utc=True, format="ISO8601"
-    )
-
-    outcomes = build_outcomes(arrivals, predictions)
+    outcomes = build_outcomes(df)
     return add_lead_bucket(outcomes)
 
 
@@ -111,7 +107,9 @@ def main() -> None:
     print(table.to_string(index=False))
 
     if len(table):
-        out_path = config.ROOT / "reports" / "blue_model_improvement.png"
+        reports_dir = config.ROOT / "reports"
+        reports_dir.mkdir(exist_ok=True)
+        out_path = reports_dir / "blue_model_improvement.png"
         plot_comparison(table, str(out_path))
         print(f"\nSaved -> {out_path}")
 

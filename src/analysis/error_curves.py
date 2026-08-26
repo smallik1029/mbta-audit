@@ -5,23 +5,25 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from src import config, db
+from src import db
 
 REPORTS_DIR_NAME = "reports"
 HEADLINE_TARGETS_MIN = [15, 10, 5, 2]
 HEADLINE_TOLERANCE_MIN = 1.0
 CURVE_MAX_MIN = 30
 
+VALIDATED_ROUTES = ("Red", "Orange")
+
 
 def load_outcomes() -> pd.DataFrame:
     """validated routes only"""
     conn = db.connect()
-    placeholders = ",".join("?" * len(config.ROUTES))
+    placeholders = ",".join("?" * len(VALIDATED_ROUTES))
     df = pd.read_sql_query(
         "SELECT route_id, lead_time_sec, error_sec, hour_local, is_rush_hour "
         f"FROM prediction_outcomes WHERE route_id IN ({placeholders})",
         conn,
-        params=config.ROUTES,
+        params=VALIDATED_ROUTES,
     )
     df["lead_min"] = df["lead_time_sec"] / 60.0
     df["abs_error_sec"] = df["error_sec"].abs()
