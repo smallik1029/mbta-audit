@@ -1,0 +1,13 @@
+[Unit]
+Description=MBTA model retrain (one-shot)
+After=network.target
+
+[Service]
+Type=oneshot
+User=ec2-user
+WorkingDirectory=/home/ec2-user/mbta-collector
+ExecStart=/home/ec2-user/mbta-collector/scripts/retrain.sh
+Nice=19
+MemoryMax=450M
+StandardOutput=append:/home/ec2-user/mbta-collector/retrain.log
+StandardError=append:/home/ec2-user/mbta-collector/retrain.log

@@ -1,6 +1,7 @@
 
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous  = NORMAL;
+PRAGMA auto_vacuum   = INCREMENTAL;
 
 CREATE TABLE IF NOT EXISTS prediction_snapshots (
     id                    INTEGER PRIMARY KEY,
