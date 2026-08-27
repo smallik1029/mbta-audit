@@ -23,14 +23,6 @@ def load_lookup(artifacts_dir=None) -> dict:
     return lookup
 
 
-def merge_lookups(*lookups: dict) -> dict:
-    """Combine multiple independently-fit lookup tables (e.g. the validated"""
-    merged = {}
-    for key in ("by_stop", "by_route", "by_bucket"):
-        merged[key] = pd.concat([lu[key] for lu in lookups], ignore_index=True)
-    return merged
-
-
 def lead_bucket(lead_time_sec: float) -> int:
     lead_min = min(lead_time_sec / 60.0, LEAD_BUCKET_MAX_MIN)
     return int(lead_min // LEAD_BUCKET_WIDTH_MIN * LEAD_BUCKET_WIDTH_MIN)

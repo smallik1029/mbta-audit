@@ -4,7 +4,7 @@ import requests
 from flask import Flask, jsonify, render_template, request
 
 from src import config, db
-from src.serve.correction import ARTIFACTS_DIR, get_corrected_predictions, load_lookup, merge_lookups
+from src.serve.correction import ARTIFACTS_DIR, get_corrected_predictions, load_lookup
 from src.serve.live_map import (
     ScheduleIndex,
     ShapeIndex,
@@ -15,13 +15,10 @@ from src.serve.live_map import (
 )
 
 MAP_ROUTES = ["Red", "Orange", "Blue"]
-BLUE_ARTIFACTS_DIR = config.ROOT / "model_artifacts_blue"
 
 app = Flask(__name__)
 _lookup = None
 _lookup_mtime = None
-_map_lookup = None
-_map_lookup_mtime = None
 _schedule = None
 _shape_index = None
 _shapes = None
@@ -45,19 +42,6 @@ def lookup() -> dict:
         _lookup = load_lookup()
         _lookup_mtime = current_mtime
     return _lookup
-
-
-def map_lookup() -> dict:
-    """Red/Orange + Blue combined, in memory only. Used by both the map and"""
-    global _map_lookup, _map_lookup_mtime
-    current_mtime = (_newest_csv_mtime(ARTIFACTS_DIR), _newest_csv_mtime(BLUE_ARTIFACTS_DIR))
-    if _map_lookup is None or current_mtime != _map_lookup_mtime:
-        if BLUE_ARTIFACTS_DIR.exists():
-            _map_lookup = merge_lookups(lookup(), load_lookup(BLUE_ARTIFACTS_DIR))
-        else:
-            _map_lookup = lookup()
-        _map_lookup_mtime = current_mtime
-    return _map_lookup
 
 
 def schedule() -> ScheduleIndex:
@@ -121,7 +105,7 @@ def api_data_range():
 @app.route("/api/live_map")
 def api_live_map():
     try:
-        trains = build_live_trains(schedule(), shape_index(), map_lookup(), MAP_ROUTES)
+        trains = build_live_trains(schedule(), shape_index(), lookup(), MAP_ROUTES)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
     return jsonify({"trains": trains})
@@ -140,7 +124,7 @@ def api_historical_map():
 
     try:
         trains = build_historical_trains(
-            t, config.HISTORY_API_URL, schedule(), shape_index(), map_lookup(), MAP_ROUTES
+            t, config.HISTORY_API_URL, schedule(), shape_index(), lookup(), MAP_ROUTES
         )
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
@@ -150,7 +134,7 @@ def api_historical_map():
 @app.route("/api/stops")
 def api_stops():
     """stops we actually have history for, so every dropdown option works"""
-    by_stop = map_lookup()["by_stop"]
+    by_stop = lookup()["by_stop"]
     stop_route = by_stop[["route_id", "stop_id"]].drop_duplicates()
 
     conn = db.connect()
@@ -172,7 +156,7 @@ def api_predict():
         return jsonify({"error": "stop_id is required"}), 400
 
     try:
-        results = get_corrected_predictions(stop_id, route_id, map_lookup())
+        results = get_corrected_predictions(stop_id, route_id, lookup())
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
 

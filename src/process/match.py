@@ -104,34 +104,27 @@ def write_outcomes(outcomes: pd.DataFrame) -> tuple[int, int]:
     return after - before, since_id
 
 
-def print_new_by_stop(since_id: int, top_n: int = 5) -> None:
+def print_new_by_stop(since_id: int) -> None:
     """how many new rows landed on each stop"""
     conn = db.connect()
     rows = conn.execute(
-        "SELECT o.route_id, o.stop_id, COALESCE(g.stop_name, o.stop_id) AS name, COUNT(*) AS n "
+        "SELECT o.route_id, o.stop_id, COALESCE(g.stop_name, o.stop_id) AS name, "
+        "       SUM(CASE WHEN o.id > :since_id THEN 1 ELSE 0 END) AS n_new, "
+        "       COUNT(*) AS n_total "
         "FROM prediction_outcomes o LEFT JOIN gtfs_stops g ON g.stop_id = o.stop_id "
-        "WHERE o.id > ? GROUP BY o.route_id, o.stop_id ORDER BY n DESC",
-        (since_id,),
+        "GROUP BY o.route_id, o.stop_id HAVING n_new > 0 ORDER BY n_new DESC",
+        {"since_id": since_id},
     ).fetchall()
     if not rows:
         print("  (no new outcomes this run)")
         return
 
     def _line(row):
-        route_id, _stop_id, name, n = row
-        return f"    {route_id:6s} {name}: {n:,}"
+        route_id, _stop_id, name, n_new, n_total = row
+        return f"    {route_id:6s} {name}: +{n_new:,} -> {n_total:,} total"
 
     print(f"  new outcomes by stop ({len(rows)} stops had new data):")
-    if len(rows) <= 2 * top_n:
-        for row in rows:
-            print(_line(row))
-        return
-
-    for row in rows[:top_n]:
-        print(_line(row))
-    hidden = len(rows) - 2 * top_n
-    print(f"    ... {hidden} more stop(s) ...")
-    for row in rows[-top_n:]:
+    for row in rows:
         print(_line(row))
 
 

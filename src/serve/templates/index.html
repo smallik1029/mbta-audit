@@ -109,6 +109,12 @@
     border: 1px solid var(--border); border-radius: 999px;
     padding: 0.1rem 0.5rem; margin-left: 0.4rem;
   }
+  #capNote {
+    display: none; color: var(--muted); font-size: 0.85rem; line-height: 1.5;
+    margin-top: 1rem; padding: 0.75rem 1rem; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  .cap-row td { color: var(--muted); font-style: italic; }
 </style>
 </head>
 <body>
@@ -139,6 +145,7 @@
     <button id="goBtn" disabled>Get predictions</button>
   </div>
   <div id="status"></div>
+  <div id="capNote"></div>
 
   <table id="resultsTable" style="display:none">
     <thead>
@@ -156,6 +163,9 @@ const statusEl = document.getElementById('status');
 const table = document.getElementById('resultsTable');
 const tbody = document.getElementById('resultsBody');
 const lineFilter = document.getElementById('lineFilter');
+const capNote = document.getElementById('capNote');
+
+const LEAD_BUCKET_MAX_MIN = 30;
 
 const ROUTE_DOT_COLORS = { Red: '#DA291C', Orange: '#ED8B00', Blue: '#003DA5' };
 
@@ -304,6 +314,7 @@ goBtn.addEventListener('click', () => {
       }
       statusEl.textContent = `${data.predictions.length} live prediction(s), just fetched.`;
       tbody.innerHTML = '';
+      capNote.style.display = 'none';
 
       const CONFIDENCE_LABELS = {
         stop: "this stop's history",
@@ -312,21 +323,52 @@ goBtn.addEventListener('click', () => {
         none: 'no history available',
       };
 
-      for (const p of data.predictions) {
+      function directionText(adjustmentSec) {
+        return adjustmentSec > 0 ? `${adjustmentSec}s later` :
+          adjustmentSec < 0 ? `${Math.abs(adjustmentSec)}s earlier` : 'no change';
+      }
+
+      function addRow(p) {
         const tr = document.createElement('tr');
         const adjClass = p.adjustment_sec > 0 ? 'adj-later' : (p.adjustment_sec < 0 ? 'adj-earlier' : '');
         const basis = CONFIDENCE_LABELS[p.confidence] || p.confidence;
-        const direction = p.adjustment_sec > 0 ? `${p.adjustment_sec}s later` :
-          p.adjustment_sec < 0 ? `${Math.abs(p.adjustment_sec)}s earlier` : 'no change';
         tr.innerHTML = `
           <td>${p.route_id}</td>
           <td class="raw">${p.raw_min.toFixed(1)} min</td>
           <td class="corrected">${p.corrected_min.toFixed(1)} min</td>
-          <td class="${adjClass}">${direction}
+          <td class="${adjClass}">${directionText(p.adjustment_sec)}
             <span class="badge">${basis} (${p.sample_size.toLocaleString()})</span></td>
         `;
         tbody.appendChild(tr);
       }
+
+      const nearTerm = data.predictions.filter(p => p.raw_min < LEAD_BUCKET_MAX_MIN);
+      const farTerm = data.predictions.filter(p => p.raw_min >= LEAD_BUCKET_MAX_MIN);
+
+      for (const p of nearTerm) addRow(p);
+
+      if (farTerm.length) {
+        const rep = farTerm[0];
+        const adjClass = rep.adjustment_sec > 0 ? 'adj-later' : (rep.adjustment_sec < 0 ? 'adj-earlier' : '');
+        const basis = CONFIDENCE_LABELS[rep.confidence] || rep.confidence;
+        const tr = document.createElement('tr');
+        tr.className = 'cap-row';
+        tr.innerHTML = `
+          <td>${rep.route_id}</td>
+          <td colspan="3" class="${adjClass}">
+            ${farTerm.length} more train${farTerm.length > 1 ? 's are' : ' is'}
+            ${LEAD_BUCKET_MAX_MIN}+ min out -- we consistently expect these
+            ${directionText(rep.adjustment_sec)} than MBTA's estimate
+            <span class="badge">${basis} (${rep.sample_size.toLocaleString()})</span>
+          </td>
+        `;
+        tbody.appendChild(tr);
+
+        capNote.textContent = `Predictions ${LEAD_BUCKET_MAX_MIN}+ minutes out share one estimate -- ` +
+          `MBTA's own predictions aren't precise that far ahead, so we don't try to be more specific than they are.`;
+        capNote.style.display = '';
+      }
+
       table.style.display = '';
     })
     .catch(() => {

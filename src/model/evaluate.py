@@ -37,13 +37,16 @@ def correct(test: pd.DataFrame, lookup: dict) -> pd.Series:
     return test["error_sec"] - bias, missing_stop.sum(), missing_route.sum()
 
 
+MIN_SAMPLES_FOR_HEADLINE = 20
+
+
 def summarize(test: pd.DataFrame, corrected_error: pd.Series) -> pd.DataFrame:
     rows = []
     for target in HEADLINE_TARGETS_MIN:
         lo = (target - HEADLINE_TOLERANCE_MIN) * 60
         hi = (target + HEADLINE_TOLERANCE_MIN) * 60
         mask = (test["lead_time_sec"] >= lo) & (test["lead_time_sec"] < hi)
-        if mask.sum() == 0:
+        if mask.sum() < MIN_SAMPLES_FOR_HEADLINE:
             continue
         baseline = test.loc[mask, "error_sec"].abs().median()
         corrected = corrected_error.loc[mask].abs().median()
@@ -55,6 +58,22 @@ def summarize(test: pd.DataFrame, corrected_error: pd.Series) -> pd.DataFrame:
             "improvement_pct": round(100 * (1 - corrected / baseline), 1) if baseline else None,
         })
     return pd.DataFrame(rows)
+
+
+def summarize_by_route(test: pd.DataFrame, corrected_error: pd.Series) -> pd.DataFrame:
+    """per-route improvement, so one line cannot hide behind another"""
+    rows = []
+    for route_id, idx in test.groupby("route_id").groups.items():
+        baseline = test.loc[idx, "error_sec"].abs().median()
+        corrected = corrected_error.loc[idx].abs().median()
+        rows.append({
+            "route_id": route_id,
+            "n": len(idx),
+            "baseline_median_abs_error_sec": round(baseline, 1),
+            "corrected_median_abs_error_sec": round(corrected, 1),
+            "improvement_pct": round(100 * (1 - corrected / baseline), 1) if baseline else None,
+        })
+    return pd.DataFrame(rows).sort_values("n", ascending=False)
 
 
 def plot_comparison(table: pd.DataFrame, out_path: str) -> None:
@@ -98,6 +117,9 @@ def main() -> None:
     table = summarize(test, corrected_error)
     print("\nBy lead time:")
     print(table.to_string(index=False))
+
+    print("\nBy route:")
+    print(summarize_by_route(test, corrected_error).to_string(index=False))
 
     reports_dir = config.ROOT / "reports"
     reports_dir.mkdir(exist_ok=True)

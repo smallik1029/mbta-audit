@@ -7,12 +7,12 @@ import pandas as pd
 
 from src import db
 
+from src.model.train import VALIDATED_ROUTES
+
 REPORTS_DIR_NAME = "reports"
 HEADLINE_TARGETS_MIN = [15, 10, 5, 2]
 HEADLINE_TOLERANCE_MIN = 1.0
 CURVE_MAX_MIN = 30
-
-VALIDATED_ROUTES = ("Red", "Orange")
 
 
 def load_outcomes() -> pd.DataFrame:
