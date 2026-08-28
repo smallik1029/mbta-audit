@@ -7,6 +7,7 @@ import pandas as pd
 
 from src import config
 from src.analysis.error_curves import HEADLINE_TARGETS_MIN, HEADLINE_TOLERANCE_MIN
+from src.model.features import apply_correction as correct
 
 
 def load_splits() -> tuple[pd.DataFrame, pd.DataFrame, dict]:
@@ -18,23 +19,6 @@ def load_splits() -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         for key in ("by_stop", "by_route", "by_bucket")
     }
     return train, test, lookup
-
-
-def correct(test: pd.DataFrame, lookup: dict) -> pd.Series:
-    """Apply the lookup, falling back route->global when a (route,stop,bucket)"""
-    idx_stop = pd.MultiIndex.from_arrays([test["route_id"], test["stop_id"], test["lead_bucket"]])
-    idx_route = pd.MultiIndex.from_arrays([test["route_id"], test["lead_bucket"]])
-
-    bias = lookup["by_stop"].reindex(idx_stop).to_numpy()
-    route_bias = lookup["by_route"].reindex(idx_route).to_numpy()
-    bucket_bias = lookup["by_bucket"].reindex(test["lead_bucket"]).to_numpy()
-
-    missing_stop = pd.isna(bias)
-    bias = pd.Series(bias).where(~missing_stop, route_bias).to_numpy()
-    missing_route = pd.isna(bias)
-    bias = pd.Series(bias).where(~missing_route, bucket_bias).to_numpy()
-
-    return test["error_sec"] - bias, missing_stop.sum(), missing_route.sum()
 
 
 MIN_SAMPLES_FOR_HEADLINE = 20

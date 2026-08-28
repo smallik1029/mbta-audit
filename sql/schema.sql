@@ -80,6 +80,21 @@ CREATE INDEX IF NOT EXISTS idx_out_lead  ON prediction_outcomes (lead_time_sec);
 CREATE INDEX IF NOT EXISTS idx_out_route ON prediction_outcomes (route_id, hour_local);
 CREATE INDEX IF NOT EXISTS idx_out_route_stop ON prediction_outcomes (route_id, stop_id);
 
+CREATE TABLE IF NOT EXISTS outcome_histogram (
+    route_id    TEXT    NOT NULL,
+    stop_id     TEXT    NOT NULL,
+    lead_bucket INTEGER NOT NULL,
+    month       TEXT    NOT NULL,
+    error_bin   INTEGER NOT NULL,
+    n           INTEGER NOT NULL,
+    PRIMARY KEY (route_id, stop_id, lead_bucket, month, error_bin)
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS pipeline_state (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS gtfs_stops (
     stop_id   TEXT PRIMARY KEY,
     stop_name TEXT,

@@ -2,6 +2,7 @@
 from datetime import UTC, datetime, timedelta
 
 from src import db
+from src.process import histogram
 
 RAW_RETENTION_DAYS = 14
 OUTCOMES_RETENTION_DAYS = 182
@@ -24,8 +25,12 @@ def prune_outcomes(now: datetime | None = None) -> dict:
     cutoff = (now - timedelta(days=OUTCOMES_RETENTION_DAYS)).isoformat()
     conn = db.connect()
     cur = conn.execute("DELETE FROM prediction_outcomes WHERE observed_at < ?", (cutoff,))
+    deleted = cur.rowcount
     conn.commit()
-    return {"prediction_outcomes": cur.rowcount}
+
+    cutoff_month = (now - timedelta(days=OUTCOMES_RETENTION_DAYS)).strftime("%Y-%m")
+    histogram_deleted = histogram.prune_months(cutoff_month)
+    return {"prediction_outcomes": deleted, "outcome_histogram": histogram_deleted}
 
 
 def reclaim_space(pages: int = 20000) -> None:
@@ -43,6 +48,7 @@ def main() -> None:
           f"{raw_deleted['vehicle_snapshots']:,} vehicle_snapshots rows "
           f"(older than {RAW_RETENTION_DAYS} days)")
     print(f"pruned {outcomes_deleted['prediction_outcomes']:,} prediction_outcomes rows "
+          f"and {outcomes_deleted['outcome_histogram']:,} outcome_histogram bins "
           f"(older than {OUTCOMES_RETENTION_DAYS} days / ~6 months)")
     reclaim_space()
     print("reclaimed freed space back to the OS (if auto_vacuum is enabled)")

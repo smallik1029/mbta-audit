@@ -2,59 +2,112 @@
 import pandas as pd
 
 from src import config, db
-from src.model.features import add_lead_bucket, time_split
+from src.model.features import (
+    LEAD_BUCKET_MAX_MIN,
+    LEAD_BUCKET_WIDTH_MIN,
+    add_lead_bucket,
+    apply_correction,
+    time_split,
+)
+from src.process import histogram
 
 VALIDATED_ROUTES = ("Red", "Orange", "Blue")
 
-SAMPLE_ROW_CAP = 1_500_000
-
-_SQL_LEAD_BUCKET = "CAST(MIN(lead_time_sec / 60.0, 30.0) / 3.0 AS INT) * 3"
+EVAL_WINDOW_ROWS = 1_500_000
 
 
-def count_by_cell(routes: tuple[str, ...]) -> pd.DataFrame:
-    """The TRUE historical count per (route, stop, lead_bucket) cell, via a"""
-    conn = db.connect()
-    placeholders = ",".join("?" * len(routes))
-    df = pd.read_sql_query(
-        f"SELECT route_id, stop_id, {_SQL_LEAD_BUCKET} AS lead_bucket, COUNT(*) AS n "
-        f"FROM prediction_outcomes WHERE route_id IN ({placeholders}) "
-        "GROUP BY route_id, stop_id, lead_bucket",
-        conn,
-        params=routes,
-    )
-    return df
+def fit_production_lookup() -> tuple[dict, dict, int]:
+    """the lookup that ships, fit from the histogram"""
+    cells = histogram.load_cells(VALIDATED_ROUTES)
+    lookup = {
+        key: histogram.medians_from_cells(cells, cols).rename("bias_sec")
+        for key, cols in LOOKUP_KEYS.items()
+    }
+    counts = {
+        key: histogram.counts_from_cells(cells, cols) for key, cols in LOOKUP_KEYS.items()
+    }
+    return lookup, counts, int(cells["n"].sum())
 
 
-def counts_by_key(cell_counts: pd.DataFrame) -> dict:
-    """Roll the finest-grain true counts up to each of the three lookup"""
-    return {key: cell_counts.groupby(cols)["n"].sum() for key, cols in LOOKUP_KEYS.items()}
-
-
-def load_outcomes(sample_cap: int = SAMPLE_ROW_CAP) -> pd.DataFrame:
-    """Loads matching outcome rows for the median computation. Below"""
+def load_recent_outcomes(limit: int = EVAL_WINDOW_ROWS) -> pd.DataFrame:
+    """raw rows from the last few days, for the split and the guard"""
     conn = db.connect()
     placeholders = ",".join("?" * len(VALIDATED_ROUTES))
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM prediction_outcomes WHERE route_id IN ({placeholders})",
-        VALIDATED_ROUTES,
-    ).fetchone()[0]
-
-    base_select = (
+    max_id = conn.execute("SELECT COALESCE(MAX(id), 0) FROM prediction_outcomes").fetchone()[0]
+    df = pd.read_sql_query(
         "SELECT route_id, stop_id, observed_at, lead_time_sec, error_sec "
-        f"FROM prediction_outcomes WHERE route_id IN ({placeholders})"
+        f"FROM prediction_outcomes WHERE id > ? AND route_id IN ({placeholders})",
+        conn,
+        params=(max(max_id - limit, 0), *VALIDATED_ROUTES),
     )
-    if total <= sample_cap:
-        df = pd.read_sql_query(base_select, conn, params=VALIDATED_ROUTES)
-    else:
-        stride = -(-total // sample_cap)
-        df = pd.read_sql_query(
-            base_select + " AND id % ? = 0", conn, params=(*VALIDATED_ROUTES, stride)
-        )
-        print(f"sampled 1-in-{stride} rows ({total:,} total, {len(df):,} loaded) "
-              "to keep the median computation memory-bounded")
-
     df["observed_at"] = pd.to_datetime(df["observed_at"], utc=True, format="ISO8601")
     return add_lead_bucket(df)
+
+
+GUARD_GROUP = ["route_id", "lead_bucket"]
+GUARD_MIN_SAMPLES = 200
+
+GUARD_CHUNKS = 4
+
+GUARD_EXEMPT_TOP_BUCKET = True
+
+
+def guard_scores(fit_window: pd.DataFrame) -> pd.DataFrame:
+    """per (route, lead_bucket), how the shipped model does out of sample"""
+    chunks = _chronological_chunks(fit_window, GUARD_CHUNKS)
+    holdout = chunks[-1]
+    lookup = fit_lookup(pd.concat(chunks[:-1]))
+
+    corrected_error, _, _ = apply_correction(holdout, lookup)
+    scored = holdout.assign(_baseline=holdout["error_sec"].abs(),
+                            _corrected=corrected_error.abs())
+    stats = scored.groupby(GUARD_GROUP).agg(
+        n=("_baseline", "size"),
+        baseline=("_baseline", "median"),
+        corrected=("_corrected", "median"),
+    )
+    stats["improvement_pct"] = 100 * (1 - stats["corrected"] / stats["baseline"])
+    return stats
+
+
+def select_harmful_groups(fit_window: pd.DataFrame) -> set:
+    """groups where correcting did not beat leaving MBTA time alone"""
+    stats = guard_scores(fit_window)
+    judged = stats[(stats["n"] >= GUARD_MIN_SAMPLES) & (stats["baseline"] > 0)]
+    harmful = set(judged.index[judged["improvement_pct"] < 0])
+    if GUARD_EXEMPT_TOP_BUCKET:
+        top = LEAD_BUCKET_MAX_MIN - (LEAD_BUCKET_MAX_MIN % LEAD_BUCKET_WIDTH_MIN)
+        harmful = {(route, bucket) for route, bucket in harmful if bucket != top}
+    return harmful
+
+
+def _chronological_chunks(df: pd.DataFrame, n: int) -> list:
+    """split into n time-ordered chunks"""
+    df = df.sort_values("observed_at")
+    bounds = [len(df) * i // n for i in range(n + 1)]
+    return [df.iloc[bounds[i]:bounds[i + 1]] for i in range(n)]
+
+
+def suppress_groups(lookup: dict, harmful: pd.MultiIndex) -> dict:
+    """zero the bias at every level, so a suppressed group cannot return via the fallback"""
+    if not len(harmful):
+        return lookup
+    harmful_pairs = set(harmful)
+    guarded = dict(lookup)
+
+    by_stop = lookup["by_stop"].copy()
+    stop_pairs = list(zip(by_stop.index.get_level_values("route_id"),
+                          by_stop.index.get_level_values("lead_bucket"), strict=False))
+    by_stop[[p in harmful_pairs for p in stop_pairs]] = 0.0
+    guarded["by_stop"] = by_stop
+
+    by_route = lookup["by_route"].copy()
+    route_pairs = list(zip(by_route.index.get_level_values("route_id"),
+                           by_route.index.get_level_values("lead_bucket"), strict=False))
+    by_route[[p in harmful_pairs for p in route_pairs]] = 0.0
+    guarded["by_route"] = by_route
+
+    return guarded
 
 
 def fit_lookup(data: pd.DataFrame) -> dict:
@@ -80,27 +133,40 @@ def export_lookup_csv(lookup: dict, counts: dict, out_dir) -> None:
 
 
 def main() -> None:
-    df = load_outcomes()
-    cell_counts = count_by_cell(VALIDATED_ROUTES)
-    counts = counts_by_key(cell_counts)
-    true_total = int(cell_counts["n"].sum())
+    db.init_schema()
 
-    train, test = time_split(df)
-    print(f"train: {len(train):,} rows ({train['observed_at'].min()} -> {train['observed_at'].max()})")
+    folded = histogram.update()
+    if folded:
+        print(f"histogram: folded {folded:,} new outcome rows")
+
+    df = load_recent_outcomes()
+
+    fit_window, test = time_split(df)
+    print(f"fit:   {len(fit_window):,} rows "
+          f"({fit_window['observed_at'].min()} -> {fit_window['observed_at'].max()})")
     print(f"test:  {len(test):,} rows ({test['observed_at'].min()} -> {test['observed_at'].max()})")
 
-    lookup = fit_lookup(train)
-    print(f"\nvalidation lookup table: {len(lookup['by_stop']):,} (route,stop,lead_bucket) cells")
+    harmful = select_harmful_groups(fit_window)
+    lookup = suppress_groups(fit_lookup(fit_window), harmful)
+    if harmful:
+        pairs = ", ".join(f"{r} @{b}min" for r, b in sorted(harmful))
+        print(f"\ndo-no-harm guard: suppressing {len(harmful)} (route, lead_bucket) "
+              f"group(s) that did not beat MBTA's raw time out of sample -> {pairs}")
+    else:
+        print("\ndo-no-harm guard: no groups suppressed (every bias was stable enough to apply)")
+    print(f"validation lookup table: {len(lookup['by_stop']):,} (route,stop,lead_bucket) cells")
+    train = fit_window
     train.to_parquet(config.ROOT / "data" / "_train_split.parquet")
     test.to_parquet(config.ROOT / "data" / "_test_split.parquet")
     for key, series in lookup.items():
         series.to_frame("bias_sec").to_parquet(config.ROOT / "data" / f"_lookup_{key}.parquet")
 
-    final_lookup = fit_lookup(df)
+    production, counts, true_total = fit_production_lookup()
+    final_lookup = suppress_groups(production, harmful)
     artifacts_dir = config.ROOT / "model_artifacts"
     export_lookup_csv(final_lookup, counts, artifacts_dir)
     print(f"production lookup table: {len(final_lookup['by_stop']):,} cells, "
-          f"fit on {len(df):,} loaded rows ({true_total:,} true total) -> {artifacts_dir}/")
+          f"fit on all {true_total:,} observations -> {artifacts_dir}/")
 
 
 if __name__ == "__main__":
