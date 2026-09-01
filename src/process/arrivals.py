@@ -7,6 +7,8 @@ from src import config, db
 
 OVERLAP = timedelta(minutes=15)
 
+WINDOW = timedelta(days=1)
+
 
 def get_watermark() -> pd.Timestamp | None:
     """latest arrival already recorded, or None if the table is empty"""
@@ -17,7 +19,9 @@ def get_watermark() -> pd.Timestamp | None:
     return pd.Timestamp(row[0])
 
 
-def load_vehicle_snapshots(since: pd.Timestamp | None) -> pd.DataFrame:
+def load_vehicle_snapshots(
+    since: pd.Timestamp | None, until: pd.Timestamp | None = None
+) -> pd.DataFrame:
     conn = db.connect()
     query = (
         "SELECT observed_at, vehicle_id, trip_id, route_id, direction_id, "
@@ -28,6 +32,9 @@ def load_vehicle_snapshots(since: pd.Timestamp | None) -> pd.DataFrame:
     if since is not None:
         query += " AND observed_at > ?"
         params.append((since - OVERLAP).isoformat())
+    if until is not None:
+        query += " AND observed_at <= ?"
+        params.append(until.isoformat())
     query += " ORDER BY vehicle_id, observed_at"
 
     df = pd.read_sql_query(query, conn, params=params)
@@ -40,6 +47,7 @@ def derive_arrivals(df: pd.DataFrame) -> pd.DataFrame:
     df["prev_status"] = df.groupby("vehicle_id")["current_status"].shift(1)
     df["prev_stop_id"] = df.groupby("vehicle_id")["current_stop_id"].shift(1)
     df["prev_observed_at"] = df.groupby("vehicle_id")["observed_at"].shift(1)
+    df["prev_trip_id"] = df.groupby("vehicle_id")["trip_id"].shift(1)
 
     arrivals = df[df["current_status"] == "STOPPED_AT"].copy()
 
@@ -59,10 +67,25 @@ def derive_arrivals(df: pd.DataFrame) -> pd.DataFrame:
     arrivals["detection_bound_sec"] = bound.where(has_incoming, config.VEHICLES_POLL_SECONDS)
 
     arrivals = arrivals.rename(columns={"current_stop_id": "stop_id", "observed_at": "actual_arrival"})
+    arrivals = pd.concat([arrivals, _inbound_trip_arrivals(arrivals)], ignore_index=True)
+    arrivals = arrivals.sort_values("actual_arrival").drop_duplicates(
+        subset=["trip_id", "stop_id", "service_date"], keep="first"
+    )
     return arrivals[[
         "trip_id", "stop_id", "route_id", "direction_id", "vehicle_id",
         "actual_arrival", "incoming_at", "detection_bound_sec", "service_date",
     ]]
+
+
+def _inbound_trip_arrivals(arrivals: pd.DataFrame) -> pd.DataFrame:
+    """terminus arrivals, refiled under the trip that was actually arriving"""
+    handover = arrivals[
+        arrivals["prev_trip_id"].notna()
+        & (arrivals["prev_trip_id"] != arrivals["trip_id"])
+        & (arrivals["prev_stop_id"] == arrivals["stop_id"])
+    ].copy()
+    handover["trip_id"] = handover["prev_trip_id"]
+    return handover
 
 
 def write_arrivals(arrivals: pd.DataFrame) -> int:
@@ -89,19 +112,46 @@ def write_arrivals(arrivals: pd.DataFrame) -> int:
     return after - before
 
 
+def earliest_snapshot() -> pd.Timestamp | None:
+    conn = db.connect()
+    row = conn.execute("SELECT MIN(observed_at) FROM vehicle_snapshots").fetchone()
+    if row is None or row[0] is None:
+        return None
+    return pd.Timestamp(row[0])
+
+
 def main() -> None:
     db.init_schema()
     watermark = get_watermark()
-    df = load_vehicle_snapshots(watermark)
-    scope = "full history (first run)" if watermark is None else f"since {watermark.isoformat()}"
-    print(f"loaded {len(df):,} vehicle snapshot rows [{scope}]")
+    start = watermark if watermark is not None else earliest_snapshot()
+    if start is None:
+        print("no vehicle snapshots to process")
+        return
 
-    arrivals = derive_arrivals(df)
-    n_new = write_arrivals(arrivals)
-    bounded = int(arrivals["incoming_at"].notna().sum())
-    print(f"processed {len(arrivals):,} candidate arrivals, {n_new:,} were new "
-          f"({bounded:,} bias-bounded via INCOMING_AT, "
-          f"{len(arrivals) - bounded:,} bounded by poll interval fallback)")
+    now = pd.Timestamp.now(tz="UTC")
+    scope = "full history (first run)" if watermark is None else f"since {watermark.isoformat()}"
+    print(f"deriving arrivals in {WINDOW.days}-day windows [{scope}]", flush=True)
+
+    total_rows = total_candidates = total_new = total_bounded = 0
+    window_start = start
+    while window_start < now:
+        window_end = min(window_start + WINDOW, now)
+        df = load_vehicle_snapshots(window_start, window_end)
+        if len(df):
+            arrivals = derive_arrivals(df)
+            n_new = write_arrivals(arrivals)
+            total_rows += len(df)
+            total_candidates += len(arrivals)
+            total_new += n_new
+            total_bounded += int(arrivals["incoming_at"].notna().sum())
+            print(f"  {window_start:%Y-%m-%d}: {len(df):,} snapshot rows, "
+                  f"{n_new:,} new arrivals", flush=True)
+        window_start = window_end
+
+    print(f"loaded {total_rows:,} vehicle snapshot rows")
+    print(f"processed {total_candidates:,} candidate arrivals, {total_new:,} were new "
+          f"({total_bounded:,} bias-bounded via INCOMING_AT, "
+          f"{total_candidates - total_bounded:,} bounded by poll interval fallback)")
 
 
 if __name__ == "__main__":

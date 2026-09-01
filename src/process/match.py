@@ -1,5 +1,5 @@
 """join predictions to real arrivals"""
-from datetime import timedelta
+import time
 
 import pandas as pd
 
@@ -7,9 +7,7 @@ from src import config, db
 
 CANCELLED_STATES = {"CANCELLED", "SKIPPED"}
 
-SERVED_ROUTES = ("Red", "Orange", "Blue")
-
-OVERLAP = timedelta(minutes=90)
+SERVED_ROUTES = ("Red", "Orange", "Blue", "Green-B", "Green-C", "Green-D", "Green-E")
 
 
 def exclude_cancelled(predictions: pd.DataFrame) -> pd.DataFrame:
@@ -17,35 +15,72 @@ def exclude_cancelled(predictions: pd.DataFrame) -> pd.DataFrame:
     return predictions[~predictions["schedule_relationship"].isin(CANCELLED_STATES)]
 
 
-def get_watermark() -> pd.Timestamp | None:
+STATE_KEY = "match_last_arrival_id"
+
+BATCH_ARRIVALS = 3_000
+
+MAX_LOOKBACK_HOURS = 3
+
+
+def seed_watermark() -> int:
+    """where to start on a db that was matched before batching existed"""
+    conn = db.connect()
+    row = conn.execute(
+        "SELECT observed_at FROM prediction_outcomes ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if row is None or row[0] is None:
+        return 0
+    cutoff = (pd.Timestamp(row[0]) - pd.Timedelta(days=1)).isoformat()
+    return int(conn.execute(
+        "SELECT COALESCE(MAX(id), 0) FROM actual_arrivals WHERE actual_arrival <= ?",
+        (cutoff,),
+    ).fetchone()[0])
+
+
+def set_watermark(value: int) -> None:
+    conn = db.connect()
+    conn.execute(
+        "INSERT INTO pipeline_state (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (STATE_KEY, str(value)),
+    )
+    conn.commit()
+
+
+def get_watermark() -> int:
     """highest arrival id already matched"""
     conn = db.connect()
-    row = conn.execute("SELECT MAX(observed_at) FROM prediction_outcomes").fetchone()
-    if row is None or row[0] is None:
-        return None
-    return pd.Timestamp(row[0])
+    row = conn.execute("SELECT value FROM pipeline_state WHERE key = ?", (STATE_KEY,)).fetchone()
+    if row:
+        return int(row[0])
+    seeded = seed_watermark()
+    set_watermark(seeded)
+    return seeded
 
 
-def load_joined_predictions(
-    since: pd.Timestamp | None = None, service_date: str | None = None
-) -> pd.DataFrame:
+def next_batch_end(since_id: int, limit: int = BATCH_ARRIVALS) -> int | None:
+    """highest arrival id in the next batch, or None when there is nothing left"""
+    conn = db.connect()
+    return conn.execute(
+        "SELECT MAX(id) FROM (SELECT id FROM actual_arrivals WHERE id > ? ORDER BY id LIMIT ?)",
+        (since_id, limit),
+    ).fetchone()[0]
+
+
+def load_joined_predictions(since_id: int, until_id: int) -> pd.DataFrame:
     """predictions joined to a slice of arrivals, in sql"""
     conn = db.connect()
     placeholders = ",".join("?" * len(SERVED_ROUTES))
     query = (
         "SELECT p.observed_at, p.trip_id, p.stop_id, p.predicted_arrival, "
         "p.schedule_relationship, a.route_id, a.direction_id, a.actual_arrival "
-        "FROM prediction_snapshots p "
-        "JOIN actual_arrivals a ON p.trip_id = a.trip_id AND p.stop_id = a.stop_id "
-        f"WHERE p.predicted_arrival IS NOT NULL AND a.route_id IN ({placeholders})"
+        "FROM actual_arrivals a "
+        "JOIN prediction_snapshots p ON p.trip_id = a.trip_id AND p.stop_id = a.stop_id "
+        "WHERE a.id > ? AND a.id <= ? AND p.predicted_arrival IS NOT NULL "
+        "AND julianday(a.actual_arrival) - julianday(p.observed_at) BETWEEN 0 AND ? "
+        f"AND a.route_id IN ({placeholders})"
     )
-    params: list = list(SERVED_ROUTES)
-    if since is not None:
-        query += " AND p.observed_at > ?"
-        params.append((since - OVERLAP).isoformat())
-    if service_date is not None:
-        query += " AND a.service_date = ?"
-        params.append(service_date)
+    params: list = [since_id, until_id, MAX_LOOKBACK_HOURS / 24.0, *SERVED_ROUTES]
 
     df = pd.read_sql_query(query, conn, params=params)
     df = exclude_cancelled(df)
@@ -53,12 +88,6 @@ def load_joined_predictions(
     df["predicted_arrival"] = pd.to_datetime(df["predicted_arrival"], utc=True, format="ISO8601")
     df["actual_arrival"] = pd.to_datetime(df["actual_arrival"], utc=True, format="ISO8601")
     return df
-
-
-def list_service_dates() -> list[str]:
-    conn = db.connect()
-    rows = conn.execute("SELECT DISTINCT service_date FROM actual_arrivals ORDER BY service_date").fetchall()
-    return [r[0] for r in rows]
 
 
 def build_outcomes(joined: pd.DataFrame) -> pd.DataFrame:
@@ -134,44 +163,40 @@ def _process_and_write(joined: pd.DataFrame) -> tuple[int, int, pd.DataFrame]:
     return n_new, since_id, outcomes
 
 
-def run_bootstrap() -> None:
-    """First-ever run: no watermark yet, so chunk by calendar day instead of"""
-    dates = list_service_dates()
-    print(f"no watermark yet -- bootstrapping {len(dates)} calendar day(s) one at a time")
-
+def run_batches() -> tuple[int, int | None]:
+    """work through unmatched arrivals a batch at a time"""
+    since = get_watermark()
     total_new = 0
-    for d in dates:
-        joined = load_joined_predictions(service_date=d)
-        n_new, _since_id, outcomes = _process_and_write(joined)
+    first_id = None
+    batches = 0
+    while True:
+        batch_end = next_batch_end(since)
+        if batch_end is None:
+            break
+        started = time.monotonic()
+        joined = load_joined_predictions(since, batch_end)
+        n_new, since_id, _outcomes = _process_and_write(joined)
+        if first_id is None:
+            first_id = since_id
         total_new += n_new
-        print(f"  {d}: {len(joined):,} predictions joined, {n_new:,} new outcomes written")
-
-    print(f"bootstrap complete: {total_new:,} total new outcomes across {len(dates)} day(s)")
-    conn = db.connect()
-    row = conn.execute(
-        "SELECT COUNT(*), AVG(ABS(error_sec)), AVG(lead_time_sec) FROM prediction_outcomes"
-    ).fetchone()
-    if row and row[0]:
-        print(f"prediction_outcomes now has {row[0]:,} total rows "
-              f"(mean |error|: {row[1]:.0f}s, mean lead_time: {row[2]:.0f}s)")
+        batches += 1
+        set_watermark(batch_end)
+        print(f"  arrivals {since:,}-{batch_end:,}: {len(joined):,} predictions joined, "
+              f"{n_new:,} new outcomes ({time.monotonic() - started:.0f}s)", flush=True)
+        since = batch_end
+    if not batches:
+        print("  nothing new to match")
+    return total_new, first_id
 
 
 def main() -> None:
     db.init_schema()
-    watermark = get_watermark()
-    if watermark is None:
-        run_bootstrap()
-        return
-
-    joined = load_joined_predictions(since=watermark)
-    print(f"{len(joined):,} predictions joined to arrivals [since {watermark.isoformat()}]")
-
-    n_new, since_id, outcomes = _process_and_write(joined)
-    print(f"processed {len(outcomes):,} candidate outcomes, {n_new:,} were new")
-    if len(outcomes):
-        print(f"median |error|: {outcomes['error_sec'].abs().median():.0f}s "
-              f"median lead_time: {outcomes['lead_time_sec'].median():.0f}s")
-    print_new_by_stop(since_id)
+    print(f"matching in batches of {BATCH_ARRIVALS:,} arrivals "
+          f"[from arrival id {get_watermark():,}]", flush=True)
+    total_new, first_id = run_batches()
+    print(f"{total_new:,} new outcomes")
+    if first_id is not None:
+        print_new_by_stop(first_id)
 
 
 if __name__ == "__main__":
