@@ -12,17 +12,25 @@ from src.collect.vehicles import VehicleCollector
 _stop = threading.Event()
 
 
+GAP_SOURCE_TABLES = ("prediction_snapshots", "vehicle_snapshots")
+
+
+def latest_observed_at() -> str | None:
+    """newest observed_at across both feeds. one query per table so each uses its index"""
+    conn = db.connect()
+    stamps = [
+        conn.execute(f"SELECT MAX(observed_at) FROM {table}").fetchone()[0]
+        for table in GAP_SOURCE_TABLES
+    ]
+    return max((s for s in stamps if s), default=None)
+
+
 def _record_restart_gap() -> None:
     """time since the last row is a gap"""
-    conn = db.connect()
-    row = conn.execute(
-        "SELECT MAX(observed_at) AS last FROM ("
-        "  SELECT observed_at FROM prediction_snapshots"
-        "  UNION ALL SELECT observed_at FROM vehicle_snapshots)"
-    ).fetchone()
-    if row and row["last"]:
-        db.log_gap("collector", row["last"], utc_now_iso(), "collector not running")
-        print(f"[startup] logged restart gap since {row['last']}", flush=True)
+    last = latest_observed_at()
+    if last:
+        db.log_gap("collector", last, utc_now_iso(), "collector not running")
+        print(f"[startup] logged restart gap since {last}", flush=True)
 
 
 def _run_feed(collector, interval: float, label: str) -> None:
@@ -104,9 +112,8 @@ def main() -> None:
 
     for t in threads:
         t.join(timeout=5)
-    print(f"final: {db.count('prediction_snapshots'):,} predictions, "
-          f"{db.count('vehicle_snapshots'):,} vehicle rows, "
-          f"{db.count('collector_gaps')} gaps", flush=True)
+    print(f"final: wrote {preds.total_written:,} prediction rows, "
+          f"{vehs.total_written:,} vehicle rows this run", flush=True)
 
 
 if __name__ == "__main__":
