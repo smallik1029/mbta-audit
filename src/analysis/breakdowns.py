@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from src import config, db
-
 from src.model.train import VALIDATED_ROUTES
 
 LEAD_MIN_FOR_COMPARISON = 10

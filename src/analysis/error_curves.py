@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from src import db
-
 from src.model.train import VALIDATED_ROUTES
 
 REPORTS_DIR_NAME = "reports"
