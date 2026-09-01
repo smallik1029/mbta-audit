@@ -7,9 +7,11 @@ import pandas as pd
 import requests
 
 from src import config
-from src.serve.correction import lead_bucket, lookup_bias
+from src.serve.correction import LEAD_BUCKET_MAX_MIN, lead_bucket, lookup_bias
 
 GTFS_DIR = config.ROOT / "data" / "gtfs"
+
+UNCORRECTED_ROUTES = frozenset({"Orange"})
 
 
 def _parse_gtfs_time_to_seconds(hms: str) -> float:
@@ -178,13 +180,19 @@ def _compute_train_positions(
     """given the soonest pending stop per trip, work out both dots. shared by live and historical"""
     results = []
     for trip_id, pred in next_pred.items():
+        if pred["lead_sec"] / 60.0 > LEAD_BUCKET_MAX_MIN:
+            continue
+
         leg = schedule.get_leg(trip_id, pred["stop_id"])
         if leg is None:
             continue
 
         route_id = pred["route_id"]
         bucket = lead_bucket(pred["lead_sec"])
-        bias, confidence, sample_size = lookup_bias(lookup, route_id, pred["stop_id"], bucket)
+        if route_id in UNCORRECTED_ROUTES:
+            bias, confidence, sample_size = 0.0, "none", 0
+        else:
+            bias, confidence, sample_size = lookup_bias(lookup, route_id, pred["stop_id"], bucket)
         corrected_lead_sec = pred["lead_sec"] - bias
 
         raw_frac = 1 - min(max(pred["lead_sec"] / leg["leg_duration_sec"], 0), 1)

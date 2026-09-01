@@ -14,7 +14,7 @@ from src.serve.live_map import (
     load_stations,
 )
 
-MAP_ROUTES = ["Red", "Orange", "Blue"]
+MAP_ROUTES = ["Red", "Orange", "Blue", "Green-B", "Green-C", "Green-D", "Green-E"]
 
 app = Flask(__name__)
 _lookup = None

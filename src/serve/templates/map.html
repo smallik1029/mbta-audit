@@ -126,12 +126,14 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const ROUTE_COLORS = { Red: '#DA291C', Orange: '#ED8B00', Blue: '#003DA5' };
+const GREEN = '#00843D';
+const ROUTE_COLORS = { Red: '#DA291C', Orange: '#ED8B00', Blue: '#003DA5',
+  'Green-B': GREEN, 'Green-C': GREEN, 'Green-D': GREEN, 'Green-E': GREEN };
 
 const map = L.map('map', { zoomControl: true });
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap &copy; CARTO',
-  maxZoom: 19,
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+  attribution: '&copy; OpenStreetMap contributors, &copy; Esri, HERE, Garmin',
+  maxZoom: 16,
 }).addTo(map);
 
 let trainLayers = [];
@@ -172,6 +174,9 @@ const CONFIDENCE_LABELS = {
 };
 
 function adjustmentSentence(adjustmentSec, confidence, sampleSize) {
+  if (confidence === 'none') {
+    return "Showing MBTA's own time — on this line our correction measured worse than leaving it alone.";
+  }
   const basis = CONFIDENCE_LABELS[confidence] || confidence;
   const n = sampleSize.toLocaleString();
   if (adjustmentSec === 0) {
@@ -183,16 +188,18 @@ function adjustmentSentence(adjustmentSec, confidence, sampleSize) {
 }
 
 function tooltipHtml(t, kind) {
-  const time = kind === 'raw' ? t.raw_min : t.corrected_min;
+  const uncorrected = t.confidence === 'none';
+  const time = (kind === 'raw' || uncorrected) ? t.raw_min : t.corrected_min;
+  const shown = (kind === 'raw' || uncorrected) ? "MBTA's official time" : "our estimated time";
   return `
     <b>${t.route_id} Line</b> &rarr; ${t.headsign}<br>
     Next stop: ${t.next_stop_name}<br>
     <br>
     MBTA's official time: ${t.raw_min.toFixed(1)} min<br>
-    Our estimated time: <b>${t.corrected_min.toFixed(1)} min</b><br>
+    ${t.confidence === 'none' ? '' : `Our estimated time: <b>${t.corrected_min.toFixed(1)} min</b><br>`}
     ${adjustmentSentence(t.adjustment_sec, t.confidence, t.sample_size)}<br>
     <br>
-    <i>Showing: ${kind === 'raw' ? "MBTA's official time" : "our estimated time"} (${time.toFixed(1)} min out)</i>
+    <i>Showing: ${shown} (${time.toFixed(1)} min out)</i>
   `;
 }
 
@@ -273,9 +280,10 @@ function refreshTrains() {
         return;
       }
       renderTrains(data.trains);
-      const now = new Date().toLocaleTimeString();
-      document.getElementById('status').textContent =
-        `${data.trains.length} active trains tracked | updated ${now}`;
+      const now = new Date().toLocaleString();
+      document.getElementById('status').innerHTML = data.trains.length
+        ? `${data.trains.length} trains tracked<br>Last updated ${now}`
+        : `No trains currently running<br>MBTA service resumes around 5 AM EST<br>Last updated ${now}`;
     })
     .catch(() => {
       if (requestId !== latestRequestId) return;
@@ -295,8 +303,9 @@ function fetchHistorical(t) {
         return;
       }
       renderTrains(data.trains);
-      document.getElementById('status').textContent =
-        `${data.trains.length} trains | as of ${t.toLocaleString()}`;
+      document.getElementById('status').innerHTML = data.trains.length
+        ? `${data.trains.length} trains tracked<br>As of ${t.toLocaleString()}`
+        : `No trains were running at this time<br>As of ${t.toLocaleString()}`;
     })
     .catch(() => {
       if (requestId !== latestRequestId) return;
