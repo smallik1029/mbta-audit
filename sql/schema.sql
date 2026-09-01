@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS prediction_outcomes (
 CREATE INDEX IF NOT EXISTS idx_out_lead  ON prediction_outcomes (lead_time_sec);
 CREATE INDEX IF NOT EXISTS idx_out_route ON prediction_outcomes (route_id, hour_local);
 CREATE INDEX IF NOT EXISTS idx_out_route_stop ON prediction_outcomes (route_id, stop_id);
+CREATE INDEX IF NOT EXISTS idx_out_observed ON prediction_outcomes (observed_at);
 
 CREATE TABLE IF NOT EXISTS outcome_histogram (
     route_id    TEXT    NOT NULL,

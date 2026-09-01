@@ -11,35 +11,61 @@ from src.model.features import (
 )
 from src.process import histogram
 
-VALIDATED_ROUTES = ("Red", "Orange", "Blue")
+VALIDATED_ROUTES = ("Red", "Orange", "Blue",
+                    "Green-B", "Green-C", "Green-D", "Green-E")
 
-EVAL_WINDOW_ROWS = 1_500_000
+EVAL_WINDOW_DAYS = 3
+
+EVAL_MAX_ROWS = 1_500_000
 
 
 def fit_production_lookup() -> tuple[dict, dict, int]:
     """the lookup that ships, fit from the histogram"""
     cells = histogram.load_cells(VALIDATED_ROUTES)
-    lookup = {
-        key: histogram.medians_from_cells(cells, cols).rename("bias_sec")
-        for key, cols in LOOKUP_KEYS.items()
-    }
     counts = {
         key: histogram.counts_from_cells(cells, cols) for key, cols in LOOKUP_KEYS.items()
     }
-    return lookup, counts, int(cells["n"].sum())
+    return lookup_from_cells(cells), counts, int(cells["n"].sum())
 
 
-def load_recent_outcomes(limit: int = EVAL_WINDOW_ROWS) -> pd.DataFrame:
+def lookup_from_cells(cells: pd.DataFrame) -> dict:
+    """a lookup in the production shape, from binned counts"""
+    return {
+        key: histogram.medians_from_cells(cells, cols).rename("bias_sec")
+        for key, cols in LOOKUP_KEYS.items()
+    }
+
+
+def eval_stride(total_rows: int, max_rows: int = EVAL_MAX_ROWS) -> int:
+    """rows to skip per row kept, so any window fits in max_rows"""
+    if total_rows <= max_rows:
+        return 1
+    return -(-total_rows // max_rows)
+
+
+def load_recent_outcomes(
+    days: int = EVAL_WINDOW_DAYS, max_rows: int = EVAL_MAX_ROWS
+) -> pd.DataFrame:
     """raw rows from the last few days, for the split and the guard"""
     conn = db.connect()
     placeholders = ",".join("?" * len(VALIDATED_ROUTES))
-    max_id = conn.execute("SELECT COALESCE(MAX(id), 0) FROM prediction_outcomes").fetchone()[0]
-    df = pd.read_sql_query(
+    cutoff = (pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)).isoformat()
+
+    total = conn.execute(
+        "SELECT COUNT(*) FROM prediction_outcomes WHERE observed_at > ?", (cutoff,)
+    ).fetchone()[0]
+    stride = eval_stride(total, max_rows)
+
+    query = (
         "SELECT route_id, stop_id, observed_at, lead_time_sec, error_sec "
-        f"FROM prediction_outcomes WHERE id > ? AND route_id IN ({placeholders})",
-        conn,
-        params=(max(max_id - limit, 0), *VALIDATED_ROUTES),
+        f"FROM prediction_outcomes WHERE observed_at > ? AND route_id IN ({placeholders})"
     )
+    if stride > 1:
+        query += f" AND id % {stride} = 0"
+
+    df = pd.read_sql_query(query, conn, params=(cutoff, *VALIDATED_ROUTES))
+    print(f"eval window: {days}d, {total:,} rows available, stride {stride} "
+          f"-> {len(df):,} loaded", flush=True)
     df["observed_at"] = pd.to_datetime(df["observed_at"], utc=True, format="ISO8601")
     return add_lead_bucket(df)
 
@@ -54,11 +80,8 @@ GUARD_EXEMPT_TOP_BUCKET = True
 
 def guard_scores(fit_window: pd.DataFrame) -> pd.DataFrame:
     """per (route, lead_bucket), how the shipped model does out of sample"""
-    chunks = _chronological_chunks(fit_window, GUARD_CHUNKS)
-    holdout = chunks[-1]
-    lookup = fit_lookup(pd.concat(chunks[:-1]))
-
-    corrected_error, _, _ = apply_correction(holdout, lookup)
+    holdout = _chronological_chunks(fit_window, GUARD_CHUNKS)[-1]
+    corrected_error, _, _ = apply_correction(holdout, holdout_lookup(holdout))
     scored = holdout.assign(_baseline=holdout["error_sec"].abs(),
                             _corrected=corrected_error.abs())
     stats = scored.groupby(GUARD_GROUP).agg(
@@ -66,14 +89,31 @@ def guard_scores(fit_window: pd.DataFrame) -> pd.DataFrame:
         baseline=("_baseline", "median"),
         corrected=("_corrected", "median"),
     )
+    stats = stats[stats["baseline"] > 0]
     stats["improvement_pct"] = 100 * (1 - stats["corrected"] / stats["baseline"])
+    stats["folds"] = 1
     return stats
+
+
+def holdout_lookup(holdout: pd.DataFrame, cells: pd.DataFrame | None = None) -> dict:
+    """the production lookup with the holdout period taken back out"""
+    start = holdout["observed_at"].min().isoformat()
+    end = holdout["observed_at"].max().isoformat()
+    if cells is None:
+        cells = histogram.load_cells(VALIDATED_ROUTES)
+    excluded = histogram.cells_between(VALIDATED_ROUTES, start, end)
+    return lookup_from_cells(histogram.subtract_cells(cells, excluded))
 
 
 def select_harmful_groups(fit_window: pd.DataFrame) -> set:
     """groups where correcting did not beat leaving MBTA time alone"""
     stats = guard_scores(fit_window)
     judged = stats[(stats["n"] >= GUARD_MIN_SAMPLES) & (stats["baseline"] > 0)]
+    worst = judged.nsmallest(5, "improvement_pct")
+    print("guard: weakest groups on the holdout ->", ", ".join(
+        f"{route}@{bucket}min {row.improvement_pct:+.1f}% (n={row.n:,})"
+        for (route, bucket), row in worst.iterrows()
+    ), flush=True)
     harmful = set(judged.index[judged["improvement_pct"] < 0])
     if GUARD_EXEMPT_TOP_BUCKET:
         top = LEAD_BUCKET_MAX_MIN - (LEAD_BUCKET_MAX_MIN % LEAD_BUCKET_WIDTH_MIN)
@@ -147,7 +187,7 @@ def main() -> None:
     print(f"test:  {len(test):,} rows ({test['observed_at'].min()} -> {test['observed_at'].max()})")
 
     harmful = select_harmful_groups(fit_window)
-    lookup = suppress_groups(fit_lookup(fit_window), harmful)
+    lookup = suppress_groups(holdout_lookup(test), harmful)
     if harmful:
         pairs = ", ".join(f"{r} @{b}min" for r, b in sorted(harmful))
         print(f"\ndo-no-harm guard: suppressing {len(harmful)} (route, lead_bucket) "

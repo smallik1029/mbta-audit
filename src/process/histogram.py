@@ -88,6 +88,31 @@ def load_cells(routes: tuple[str, ...]) -> pd.DataFrame:
     )
 
 
+def cells_between(routes: tuple[str, ...], start: str, end: str) -> pd.DataFrame:
+    """bins for one time range, straight from prediction_outcomes"""
+    conn = db.connect()
+    placeholders = ",".join("?" * len(routes))
+    return pd.read_sql_query(
+        f"SELECT route_id, stop_id, {_SQL_LEAD_BUCKET} AS lead_bucket, "
+        "CAST(ROUND(error_sec) AS INTEGER) AS error_bin, COUNT(*) AS n "
+        "FROM prediction_outcomes "
+        "WHERE observed_at >= ? AND observed_at <= ? AND route_id IS NOT NULL "
+        f"AND route_id IN ({placeholders}) GROUP BY 1, 2, 3, 4",
+        conn,
+        params=(start, end, *routes),
+    )
+
+
+def subtract_cells(total: pd.DataFrame, part: pd.DataFrame) -> pd.DataFrame:
+    """total minus part, bin by bin"""
+    keys = ["route_id", "stop_id", "lead_bucket", "error_bin"]
+    if part.empty or total.empty:
+        return total
+    merged = total.merge(part, on=keys, how="left", suffixes=("", "_part"))
+    merged["n"] = merged["n"] - merged["n_part"].fillna(0)
+    return merged.loc[merged["n"] > 0, [*keys, "n"]].reset_index(drop=True)
+
+
 def medians_from_cells(cells: pd.DataFrame, group_cols: list) -> pd.Series:
     """median error per group, read off the counts"""
     if cells.empty:

@@ -75,3 +75,15 @@ def test_summarize_keeps_buckets_at_the_threshold():
     table = summarize(test, pd.Series([10.0] * n))
     assert len(table) == 1
     assert table.iloc[0]["n"] == n
+
+
+def test_eval_stride_keeps_any_window_under_the_ceiling():
+    """row count moves with throughput, so the stride is what keeps memory flat"""
+    from src.model.train import eval_stride
+
+    assert eval_stride(500, max_rows=1_000) == 1
+    assert eval_stride(1_000, max_rows=1_000) == 1
+    assert eval_stride(2_000, max_rows=1_000) == 2
+    assert eval_stride(2_001, max_rows=1_000) == 3
+    for total in (1, 999, 1_000, 1_001, 5_000_000, 50_000_000):
+        assert total // eval_stride(total, max_rows=1_000) <= 1_000 or total <= 1_000
