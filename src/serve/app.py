@@ -1,4 +1,4 @@
-"""web front end. live map and single-stop lookup"""
+"""web front end. live map, single-stop lookup and status"""
 import pandas as pd
 import requests
 from flask import Flask, jsonify, render_template, request
@@ -13,6 +13,7 @@ from src.serve.live_map import (
     load_shapes,
     load_stations,
 )
+from src.serve.status import build_status
 
 MAP_ROUTES = ["Red", "Orange", "Blue", "Green-B", "Green-C", "Green-D", "Green-E"]
 
@@ -80,6 +81,23 @@ def map_page():
 @app.route("/corrector")
 def index():
     return render_template("index.html")
+
+
+@app.route("/status")
+def status_page():
+    return render_template("status.html")
+
+
+@app.route("/api/status")
+def api_status():
+    try:
+        table = lookup()
+        observations = int(table["by_bucket"]["n"].sum())
+        cells = int(len(table["by_stop"]))
+        payload = build_status(_newest_csv_mtime(ARTIFACTS_DIR), observations, cells)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
+    return jsonify(payload)
 
 
 @app.route("/api/stations")
