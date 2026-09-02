@@ -7,11 +7,14 @@ import pandas as pd
 import requests
 
 from src import config
-from src.serve.correction import LEAD_BUCKET_MAX_MIN, lead_bucket, lookup_bias
+from src.serve.correction import (
+    LEAD_BUCKET_MAX_MIN,
+    UNCORRECTED_ROUTES,
+    lead_bucket,
+    lookup_bias,
+)
 
 GTFS_DIR = config.ROOT / "data" / "gtfs"
-
-UNCORRECTED_ROUTES = frozenset({"Orange"})
 
 
 def _parse_gtfs_time_to_seconds(hms: str) -> float:
@@ -190,7 +193,7 @@ def _compute_train_positions(
         route_id = pred["route_id"]
         bucket = lead_bucket(pred["lead_sec"])
         if route_id in UNCORRECTED_ROUTES:
-            bias, confidence, sample_size = 0.0, "none", 0
+            bias, confidence, sample_size = 0.0, "uncorrected", 0
         else:
             bias, confidence, sample_size = lookup_bias(lookup, route_id, pred["stop_id"], bucket)
         corrected_lead_sec = pred["lead_sec"] - bias

@@ -9,6 +9,7 @@ from src import config, db
 ARTIFACTS_DIR = config.ROOT / "model_artifacts"
 LEAD_BUCKET_WIDTH_MIN = 3
 LEAD_BUCKET_MAX_MIN = 30
+UNCORRECTED_ROUTES = frozenset({"Orange"})
 
 
 def load_lookup(artifacts_dir=None) -> dict:
@@ -50,8 +51,9 @@ def lookup_bias(lookup: dict, route_id: str, stop_id: str, bucket: int) -> tuple
     return 0.0, "none", 0
 
 
-def fetch_live_predictions(stop_id: str, route_id: str | None) -> list[dict]:
-    params = {"filter[stop]": stop_id}
+def fetch_live_predictions(stop_id: str, route_id: str | None) -> tuple[list[dict], list[dict]]:
+    """predictions plus the trips they belong to, so we can name a destination"""
+    params = {"filter[stop]": stop_id, "include": "trip"}
     if route_id:
         params["filter[route]"] = route_id
     resp = requests.get(
@@ -61,7 +63,8 @@ def fetch_live_predictions(stop_id: str, route_id: str | None) -> list[dict]:
         timeout=15,
     )
     resp.raise_for_status()
-    return resp.json().get("data", [])
+    payload = resp.json()
+    return payload.get("data", []), payload.get("included", [])
 
 
 def stop_name(stop_id: str) -> str:
@@ -72,7 +75,12 @@ def stop_name(stop_id: str) -> str:
 
 def get_corrected_predictions(stop_id: str, route_id: str | None, lookup: dict) -> list[dict]:
     """what both the cli and the web app call"""
-    predictions = fetch_live_predictions(stop_id, route_id)
+    predictions, included = fetch_live_predictions(stop_id, route_id)
+    headsigns = {
+        item["id"]: (item.get("attributes") or {}).get("headsign")
+        for item in included
+        if item.get("type") == "trip"
+    }
     now = datetime.now(UTC)
     results = []
 
@@ -86,14 +94,21 @@ def get_corrected_predictions(stop_id: str, route_id: str | None, lookup: dict) 
         if lead_sec < 0:
             continue
 
-        rel = (item.get("relationships") or {}).get("route") or {}
+        rels = item.get("relationships") or {}
+        rel = rels.get("route") or {}
         this_route = (rel.get("data") or {}).get("id", route_id or "?")
+        trip = (rels.get("trip") or {}).get("data") or {}
         bucket = lead_bucket(lead_sec)
-        bias, level, n = lookup_bias(lookup, this_route, stop_id, bucket)
+        if this_route in UNCORRECTED_ROUTES:
+            bias, level, n = 0.0, "uncorrected", 0
+        else:
+            bias, level, n = lookup_bias(lookup, this_route, stop_id, bucket)
         corrected_lead_sec = lead_sec - bias
 
         results.append({
             "route_id": this_route,
+            "headsign": headsigns.get(trip.get("id")) or "",
+            "arrival_iso": arrival_dt.isoformat(),
             "raw_min": round(lead_sec / 60, 1),
             "corrected_min": round(corrected_lead_sec / 60, 1),
             "adjustment_sec": round(-bias),

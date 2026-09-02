@@ -38,12 +38,31 @@
   .panel p { font-size: 0.82rem; color: #9aa0ab; margin: 0.3rem 0; line-height: 1.4; }
   .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
   .status { font-size: 0.78rem; color: #9aa0ab; margin-top: 0.5rem; }
+  .touch-hint { display: none; }
+  @media (hover: none) {
+    .hover-hint { display: none; }
+    .touch-hint { display: inline; }
+  }
+  @media (max-width: 640px) {
+    .panel-stack { top: 58px; left: 8px; right: 56px; max-width: none; }
+    .panel { padding: 0.6rem 0.8rem; }
+    .panel h1 { font-size: 0.95rem; margin-bottom: 0.25rem; }
+    .panel p { font-size: 0.78rem; margin: 0.2rem 0; }
+    .status { font-size: 0.72rem; margin-top: 0.35rem; }
+    .hint-extra { display: none; }
+  }
   .train-tooltip {
     background: #171a21; color: #e8e9ec; border: 1px solid #2a2e38;
     border-radius: 8px; font-family: -apple-system, "Segoe UI", sans-serif;
-    font-size: 0.82rem; padding: 0.5rem 0.7rem; line-height: 1.5;
+    font-size: 0.82rem; padding: 0.55rem 0.75rem; line-height: 1.5;
+    width: max-content; max-width: 270px; white-space: normal;
   }
   .train-tooltip b { color: #fff; }
+  .train-tooltip .muted { color: #9aa0ab; }
+  .train-tooltip .note {
+    margin-top: 0.5rem; padding-left: 0.55rem; border-left: 2px solid #3a3f4b;
+    color: #9aa0ab; font-size: 0.74rem; line-height: 1.45;
+  }
   .train-tooltip .later { color: #ED8B00; }
   .train-tooltip .earlier { color: #4caf50; }
   .leaflet-tooltip-top.train-tooltip::before { border-top-color: #2a2e38; }
@@ -111,7 +130,7 @@
     <h1>MBTA Live Prediction Map</h1>
     <p><span class="legend-dot" style="background:#ffffff"></span>Solid = MBTA's official time</p>
     <p><span class="legend-dot" style="background:#ffffff; opacity:0.35"></span>Hollow/faint = Our estimated time</p>
-    <p>Hover a dot for details. The gap between each pair is the correction in action, right now.</p>
+    <p><span class="hover-hint">Hover</span><span class="touch-hint">Tap</span> a dot for details.<span class="hint-extra"> The gap between each pair is the correction in action, right now.</span></p>
     <div class="status" id="status">Loading...</div>
   </div>
 </div>
@@ -130,7 +149,8 @@ const GREEN = '#00843D';
 const ROUTE_COLORS = { Red: '#DA291C', Orange: '#ED8B00', Blue: '#003DA5',
   'Green-B': GREEN, 'Green-C': GREEN, 'Green-D': GREEN, 'Green-E': GREEN };
 
-const map = L.map('map', { zoomControl: true });
+const map = L.map('map', { zoomControl: false });
+L.control.zoom({ position: 'topright' }).addTo(map);
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
   attribution: '&copy; OpenStreetMap contributors, &copy; Esri, HERE, Garmin',
   maxZoom: 16,
@@ -170,37 +190,53 @@ const CONFIDENCE_LABELS = {
   stop: "this stop's history",
   route: "this line's history",
   global: 'system-wide history',
-  none: 'no history available',
 };
 
-function adjustmentSentence(adjustmentSec, confidence, sampleSize) {
-  if (confidence === 'none') {
-    return "Showing MBTA's own time — on this line our correction measured worse than leaving it alone.";
-  }
-  const basis = CONFIDENCE_LABELS[confidence] || confidence;
-  const n = sampleSize.toLocaleString();
-  if (adjustmentSec === 0) {
-    return `We agree with MBTA's time, based on ${basis} (${n} past observations).`;
-  }
-  const direction = adjustmentSec > 0 ? 'later' : 'earlier';
-  const cls = adjustmentSec > 0 ? 'later' : 'earlier';
-  return `We think it'll actually arrive <span class="${cls}"><b>${Math.abs(adjustmentSec)}s ${direction}</b></span> than MBTA says, based on ${basis} (${n} past observations).`;
-}
-
-function tooltipHtml(t, kind) {
-  const uncorrected = t.confidence === 'none';
-  const time = (kind === 'raw' || uncorrected) ? t.raw_min : t.corrected_min;
-  const shown = (kind === 'raw' || uncorrected) ? "MBTA's official time" : "our estimated time";
+function tooltipShell(t, minutes, attribution, note) {
   return `
     <b>${t.route_id} Line</b> &rarr; ${t.headsign}<br>
     Next stop: ${t.next_stop_name}<br>
     <br>
-    MBTA's official time: ${t.raw_min.toFixed(1)} min<br>
-    ${t.confidence === 'none' ? '' : `Our estimated time: <b>${t.corrected_min.toFixed(1)} min</b><br>`}
-    ${adjustmentSentence(t.adjustment_sec, t.confidence, t.sample_size)}<br>
-    <br>
-    <i>Showing: ${shown} (${time.toFixed(1)} min out)</i>
+    Arriving in <b>${minutes.toFixed(1)} min</b><br>
+    <span class="muted">${attribution}</span>
+    <div class="note">${note}</div>
   `;
+}
+
+function basisPhrase(confidence, sampleSize) {
+  const basis = CONFIDENCE_LABELS[confidence] || confidence;
+  return `${basis} (${sampleSize.toLocaleString()} past observations)`;
+}
+
+function deltaSpan(adjustmentSec) {
+  const direction = adjustmentSec > 0 ? 'later' : 'earlier';
+  return `<span class="${direction}"><b>${Math.abs(adjustmentSec)}s ${direction}</b></span>`;
+}
+
+function tooltipHtml(t, kind) {
+  if (t.confidence === 'uncorrected') {
+    return tooltipShell(t, t.raw_min, "MBTA's own time, unadjusted",
+      'Our correction measured worse than MBTA on this line, so we leave their number alone here.');
+  }
+  if (t.confidence === 'none') {
+    return tooltipShell(t, t.raw_min, "MBTA's official time",
+      "No history for this stop yet, so we're showing MBTA's time unchanged.");
+  }
+
+  const basis = basisPhrase(t.confidence, t.sample_size);
+  if (t.adjustment_sec === 0) {
+    return tooltipShell(t, t.raw_min,
+      kind === 'raw' ? "MBTA's official time" : 'Our estimate, same as MBTA',
+      `We agree with MBTA's time, based on ${basis}.`);
+  }
+
+  if (kind === 'raw') {
+    return tooltipShell(t, t.raw_min, "MBTA's official time",
+      `We think it'll actually arrive ${deltaSpan(t.adjustment_sec)}, at ${t.corrected_min.toFixed(1)} min, based on ${basis}.`);
+  }
+  return tooltipShell(t, t.corrected_min,
+    `Our estimate, ${deltaSpan(t.adjustment_sec)} than MBTA's ${t.raw_min.toFixed(1)} min`,
+    `Based on ${basis}.`);
 }
 
 function curvedLatLngs(latlng0, latlng1, offsetPx) {
@@ -208,7 +244,7 @@ function curvedLatLngs(latlng0, latlng1, offsetPx) {
   const p1 = map.latLngToLayerPoint(latlng1);
   const dx = p1.x - p0.x, dy = p1.y - p0.y;
   const len = Math.sqrt(dx * dx + dy * dy) || 1;
-  const nx = -dy / len, ny = dx / len; // unit perpendicular
+  const nx = -dy / len, ny = dx / len;
   const midX = (p0.x + p1.x) / 2 + nx * offsetPx;
   const midY = (p0.y + p1.y) / 2 + ny * offsetPx;
 
@@ -234,7 +270,7 @@ function drawConnectors() {
     const curve = L.polyline(curvedLatLngs(t.raw_pos, t.corrected_pos, 14), {
       color: '#fff', weight: 4, opacity: 0.9,
     }).addTo(map);
-    curve.bringToBack(); // under the dots, on top of the track/stations
+    curve.bringToBack();
     connectorLayers.push(curve);
   }
 }
@@ -318,7 +354,7 @@ const liveBtn = document.getElementById('liveBtn');
 const timeLabel = document.getElementById('timeLabel');
 let debounceHandle = null;
 
-const MAX_CAP_MIN = 1440; // 24h ceiling -- stops growing once real data reaches this
+const MAX_CAP_MIN = 1440;
 
 function formatAgo(minutesAgo) {
   const hours = Math.floor(minutesAgo / 60);
@@ -381,7 +417,7 @@ fetch('/api/shapes')
   .then(drawStations);
 
 updateSliderCap();
-setInterval(updateSliderCap, 60_000); // grows as more history accumulates, stops at 24h
+setInterval(updateSliderCap, 60_000);
 
 refreshTrains();
 setInterval(refreshTrains, 5000);
