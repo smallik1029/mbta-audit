@@ -15,6 +15,7 @@
     --orange: #ED8B00;
     --blue: #003DA5;
     --green: #2e7d32;
+    --line-green: #00843D;
   }
   * { box-sizing: border-box; }
   body {
@@ -54,6 +55,7 @@
   .line-chip[data-route="Red"].active { background: var(--red); border-color: var(--red); color: #fff; }
   .line-chip[data-route="Orange"].active { background: var(--orange); border-color: var(--orange); color: #fff; }
   .line-chip[data-route="Blue"].active { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .line-chip[data-route^="Green"].active { background: var(--line-green); border-color: var(--line-green); color: #fff; }
   .controls {
     display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;
     background: var(--panel); border: 1px solid var(--border);
@@ -97,8 +99,16 @@
   button:hover { filter: brightness(1.1); }
   button:disabled { opacity: 0.5; cursor: default; }
   #status { color: var(--muted); margin-top: 1rem; font-size: 0.9rem; min-height: 1.2em; }
-  table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
-  th, td { text-align: left; padding: 0.6rem 0.5rem; border-bottom: 1px solid var(--border); }
+  table { width: 100%; max-width: 900px; border-collapse: collapse; margin-top: 1.5rem; }
+  th, td { text-align: left; padding: 0.75rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .row-dot {
+    display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+    margin-right: 0.5rem; vertical-align: middle; flex-shrink: 0;
+  }
+  .sub-cell { color: var(--muted); font-size: 0.8rem; margin-top: 0.2rem; }
+  .sub-cell.adj-later { color: var(--orange); }
+  .sub-cell.adj-earlier { color: var(--green); }
+  .muted-cell { display: block; color: var(--muted); font-size: 0.85rem; line-height: 1.45; max-width: 300px; }
   th { color: var(--muted); font-weight: 500; font-size: 0.85rem; text-transform: uppercase; }
   .raw { color: var(--muted); }
   .corrected { font-weight: 600; }
@@ -109,10 +119,10 @@
     border: 1px solid var(--border); border-radius: 999px;
     padding: 0.1rem 0.5rem; margin-left: 0.4rem;
   }
-  #capNote {
-    display: none; color: var(--muted); font-size: 0.85rem; line-height: 1.5;
-    margin-top: 1rem; padding: 0.75rem 1rem; background: var(--panel);
-    border: 1px solid var(--border); border-radius: 8px;
+  .note-bar {
+    display: none; color: var(--muted); font-size: 0.88rem; line-height: 1.55;
+    margin-top: 1.1rem; padding: 0.2rem 0 0.2rem 0.85rem;
+    border-left: 2px solid #3a3f4b; max-width: 620px;
   }
   .cap-row td { color: var(--muted); font-style: italic; }
 </style>
@@ -126,7 +136,7 @@
   <h1>MBTA Prediction Corrector</h1>
   <p class="sub">
     We track how far off the MBTA's own predictions have been in the past, at
-    stops across the Red, Orange, and Blue Lines, and use that history to
+    stops across the Red, Orange, Blue, and Green Lines, and use that history to
     make a corrected estimate. Pick a stop below to compare the MBTA's
     official time with our estimate, live.
   </p>
@@ -135,6 +145,10 @@
     <button type="button" class="line-chip active" data-route="Red">Red Line</button>
     <button type="button" class="line-chip active" data-route="Orange">Orange Line</button>
     <button type="button" class="line-chip active" data-route="Blue">Blue Line</button>
+    <button type="button" class="line-chip active" data-route="Green-B">Green B</button>
+    <button type="button" class="line-chip active" data-route="Green-C">Green C</button>
+    <button type="button" class="line-chip active" data-route="Green-D">Green D</button>
+    <button type="button" class="line-chip active" data-route="Green-E">Green E</button>
   </div>
 
   <div class="controls">
@@ -145,11 +159,12 @@
     <button id="goBtn" disabled>Get predictions</button>
   </div>
   <div id="status"></div>
-  <div id="capNote"></div>
+  <div id="routeNote" class="note-bar"></div>
+  <div id="capNote" class="note-bar"></div>
 
   <table id="resultsTable" style="display:none">
     <thead>
-      <tr><th>Route</th><th>MBTA's official time</th><th>Our estimated time</th><th>Based on</th></tr>
+      <tr><th>Train</th><th>MBTA's time</th><th>Our estimate</th><th>Based on</th></tr>
     </thead>
     <tbody id="resultsBody"></tbody>
   </table>
@@ -164,13 +179,17 @@ const table = document.getElementById('resultsTable');
 const tbody = document.getElementById('resultsBody');
 const lineFilter = document.getElementById('lineFilter');
 const capNote = document.getElementById('capNote');
+const routeNote = document.getElementById('routeNote');
 
 const LEAD_BUCKET_MAX_MIN = 30;
 
-const ROUTE_DOT_COLORS = { Red: '#DA291C', Orange: '#ED8B00', Blue: '#003DA5' };
+const ROUTE_DOT_COLORS = {
+  Red: '#DA291C', Orange: '#ED8B00', Blue: '#003DA5',
+  'Green-B': '#00843D', 'Green-C': '#00843D', 'Green-D': '#00843D', 'Green-E': '#00843D',
+};
 
 let allStops = [];
-const selectedRoutes = new Set(['Red', 'Orange', 'Blue']);
+const selectedRoutes = new Set(['Red', 'Orange', 'Blue', 'Green-B', 'Green-C', 'Green-D', 'Green-E']);
 let selectedStop = null;
 let highlightedIndex = -1;
 let currentMatches = [];
@@ -312,15 +331,17 @@ goBtn.addEventListener('click', () => {
         statusEl.textContent = 'No live predictions right now for this stop.';
         return;
       }
-      statusEl.textContent = `${data.predictions.length} live prediction(s), just fetched.`;
+      const fetchedAt = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const n = data.predictions.length;
+      statusEl.textContent = `${selectedStop.stop_name}: ${n} upcoming train${n > 1 ? 's' : ''}, as of ${fetchedAt}.`;
       tbody.innerHTML = '';
       capNote.style.display = 'none';
+      routeNote.style.display = 'none';
 
       const CONFIDENCE_LABELS = {
         stop: "this stop's history",
         route: "this line's history",
         global: 'system-wide history',
-        none: 'no history available',
       };
 
       function directionText(adjustmentSec) {
@@ -328,18 +349,53 @@ goBtn.addEventListener('click', () => {
           adjustmentSec < 0 ? `${Math.abs(adjustmentSec)}s earlier` : 'no change';
       }
 
+      function clockTime(iso) {
+        return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      }
+
+      function trainCell(p) {
+        const color = ROUTE_DOT_COLORS[p.route_id] || '#888';
+        const dest = p.headsign ? `to ${p.headsign}` : 'destination unknown';
+        return `<span class="row-dot" style="background:${color}"></span>${dest}
+          <div class="sub-cell">${p.route_id} Line</div>`;
+      }
+
+      function estimateCell(p) {
+        if (p.confidence === 'uncorrected' || p.confidence === 'none') {
+          return `<span class="muted-cell">MBTA's time, unchanged</span>`;
+        }
+        const adjClass = p.adjustment_sec > 0 ? 'adj-later' : (p.adjustment_sec < 0 ? 'adj-earlier' : '');
+        return `<span class="corrected">${p.corrected_min.toFixed(1)} min</span>
+          <div class="sub-cell ${adjClass}">${directionText(p.adjustment_sec)}</div>`;
+      }
+
+      function basisCell(p) {
+        if (p.confidence === 'uncorrected') {
+          return `<span class="muted-cell">not corrected</span>`;
+        }
+        if (p.confidence === 'none') {
+          return `<span class="muted-cell">No history for this stop yet</span>`;
+        }
+        const basis = CONFIDENCE_LABELS[p.confidence] || p.confidence;
+        return `<span class="badge">${basis} (${p.sample_size.toLocaleString()})</span>`;
+      }
+
       function addRow(p) {
         const tr = document.createElement('tr');
-        const adjClass = p.adjustment_sec > 0 ? 'adj-later' : (p.adjustment_sec < 0 ? 'adj-earlier' : '');
-        const basis = CONFIDENCE_LABELS[p.confidence] || p.confidence;
         tr.innerHTML = `
-          <td>${p.route_id}</td>
-          <td class="raw">${p.raw_min.toFixed(1)} min</td>
-          <td class="corrected">${p.corrected_min.toFixed(1)} min</td>
-          <td class="${adjClass}">${directionText(p.adjustment_sec)}
-            <span class="badge">${basis} (${p.sample_size.toLocaleString()})</span></td>
+          <td>${trainCell(p)}</td>
+          <td class="raw">${p.raw_min.toFixed(1)} min<div class="sub-cell">${clockTime(p.arrival_iso)}</div></td>
+          <td>${estimateCell(p)}</td>
+          <td>${basisCell(p)}</td>
         `;
         tbody.appendChild(tr);
+      }
+
+      const uncorrected = data.predictions.find(p => p.confidence === 'uncorrected');
+      if (uncorrected) {
+        routeNote.textContent = `We show MBTA's own time on the ${uncorrected.route_id} Line. ` +
+          `Our correction measured worse than leaving it alone when we tested it, so we don't apply it here.`;
+        routeNote.style.display = 'block';
       }
 
       const nearTerm = data.predictions.filter(p => p.raw_min < LEAD_BUCKET_MAX_MIN);
@@ -349,24 +405,18 @@ goBtn.addEventListener('click', () => {
 
       if (farTerm.length) {
         const rep = farTerm[0];
-        const adjClass = rep.adjustment_sec > 0 ? 'adj-later' : (rep.adjustment_sec < 0 ? 'adj-earlier' : '');
-        const basis = CONFIDENCE_LABELS[rep.confidence] || rep.confidence;
+        const plural = farTerm.length > 1 ? 's are' : ' is';
+        const tail = rep.confidence === 'uncorrected'
+          ? "we show MBTA's own time on this line"
+          : `we consistently expect these ${directionText(rep.adjustment_sec)} than MBTA's estimate`;
         const tr = document.createElement('tr');
         tr.className = 'cap-row';
-        tr.innerHTML = `
-          <td>${rep.route_id}</td>
-          <td colspan="3" class="${adjClass}">
-            ${farTerm.length} more train${farTerm.length > 1 ? 's are' : ' is'}
-            ${LEAD_BUCKET_MAX_MIN}+ min out -- we consistently expect these
-            ${directionText(rep.adjustment_sec)} than MBTA's estimate
-            <span class="badge">${basis} (${rep.sample_size.toLocaleString()})</span>
-          </td>
-        `;
+        tr.innerHTML = `<td colspan="4">${farTerm.length} more train${plural} ${LEAD_BUCKET_MAX_MIN}+ min out, ${tail}</td>`;
         tbody.appendChild(tr);
 
-        capNote.textContent = `Predictions ${LEAD_BUCKET_MAX_MIN}+ minutes out share one estimate -- ` +
+        capNote.textContent = `Predictions ${LEAD_BUCKET_MAX_MIN}+ minutes out share one estimate. ` +
           `MBTA's own predictions aren't precise that far ahead, so we don't try to be more specific than they are.`;
-        capNote.style.display = '';
+        capNote.style.display = 'block';
       }
 
       table.style.display = '';
