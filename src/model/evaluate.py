@@ -1,4 +1,7 @@
 """evaluate the correction table on the held-out split"""
+import json
+from datetime import UTC, datetime
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -82,6 +85,32 @@ def plot_comparison(table: pd.DataFrame, out_path: str) -> None:
     plt.close(fig)
 
 
+def write_report(test, overall: dict, by_route) -> None:
+    """dated json the status page reads, so a stale number announces itself"""
+    report = {
+        "measured_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "test_rows": int(len(test)),
+        "test_start": str(test["observed_at"].min()),
+        "test_end": str(test["observed_at"].max()),
+        "overall": overall,
+        "by_route": [
+            {
+                "route_id": row["route_id"],
+                "n": int(row["n"]),
+                "baseline_sec": float(row["baseline_median_abs_error_sec"]),
+                "corrected_sec": float(row["corrected_median_abs_error_sec"]),
+                "improvement_pct": float(row["improvement_pct"]),
+            }
+            for _, row in by_route.iterrows()
+            if row["improvement_pct"] is not None
+        ],
+    }
+    out = config.ROOT / "model_artifacts" / "evaluation.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2))
+    print(f"Saved evaluation report -> {out}")
+
+
 def main() -> None:
     train, test, lookup = load_splits()
     print(f"evaluating on {len(test):,} held-out test rows "
@@ -102,8 +131,15 @@ def main() -> None:
     print("\nBy lead time:")
     print(table.to_string(index=False))
 
+    by_route = summarize_by_route(test, corrected_error)
     print("\nBy route:")
-    print(summarize_by_route(test, corrected_error).to_string(index=False))
+    print(by_route.to_string(index=False))
+
+    write_report(test, {
+        "baseline_sec": round(float(overall_baseline), 1),
+        "corrected_sec": round(float(overall_corrected), 1),
+        "improvement_pct": round(float(overall_improvement), 1),
+    }, by_route)
 
     reports_dir = config.ROOT / "reports"
     reports_dir.mkdir(exist_ok=True)
