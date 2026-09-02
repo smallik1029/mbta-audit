@@ -1,5 +1,5 @@
 [Unit]
-Description=MBTA model retrain (one-shot)
+Description=MBTA pipeline (hourly, one-shot)
 After=network.target
 
 [Service]

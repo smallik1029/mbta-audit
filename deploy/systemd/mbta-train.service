@@ -1,0 +1,13 @@
+[Unit]
+Description=MBTA model train (daily, one-shot)
+After=network.target
+
+[Service]
+Type=oneshot
+User=ec2-user
+WorkingDirectory=/home/ec2-user/mbta-collector
+ExecStart=/home/ec2-user/mbta-collector/scripts/train.sh
+Nice=19
+MemoryMax=450M
+StandardOutput=append:/home/ec2-user/mbta-collector/train.log
+StandardError=append:/home/ec2-user/mbta-collector/train.log
