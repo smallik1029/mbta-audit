@@ -6,6 +6,7 @@ After=network.target
 Type=oneshot
 User=ec2-user
 WorkingDirectory=/home/ec2-user/mbta-collector
+EnvironmentFile=-/etc/mbta-monitor.env
 ExecStart=/home/ec2-user/mbta-collector/scripts/retrain.sh
 Nice=19
 MemoryMax=450M
