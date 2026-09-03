@@ -30,4 +30,6 @@ python3.11 -m src.process.mark_run last_train_run
 
 python3.11 -m src.model.evaluate || echo "!!! evaluate failed, the model itself is unaffected"
 
+python3.11 -m src.process.backup || echo "!!! histogram snapshot failed, the model itself is unaffected"
+
 echo "=== train run finished: $(date -u +%Y-%m-%dT%H:%M:%SZ) (total $(( $(date +%s) - start ))s) ==="

@@ -13,7 +13,7 @@ def enabled() -> bool:
     return bool(config.S3_ARCHIVE_BUCKET)
 
 
-def _client():
+def s3_client():
     try:
         import boto3
     except ImportError:
@@ -82,7 +82,7 @@ def archive_day(day: date, client=None) -> int:
         STAGING_DIR.mkdir(parents=True, exist_ok=True)
         path = STAGING_DIR / f"outcomes-{day.isoformat()}.parquet"
         rows.to_parquet(path, index=False, compression="zstd")
-        (client or _client()).upload_file(str(path), config.S3_ARCHIVE_BUCKET, object_key(day))
+        (client or s3_client()).upload_file(str(path), config.S3_ARCHIVE_BUCKET, object_key(day))
         path.unlink(missing_ok=True)
     _remember(day)
     return len(rows)
