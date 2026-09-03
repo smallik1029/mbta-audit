@@ -14,6 +14,8 @@ from src.process import histogram
 VALIDATED_ROUTES = ("Red", "Orange", "Blue",
                     "Green-B", "Green-C", "Green-D", "Green-E")
 
+MIN_STOP_SAMPLES = 200
+
 EVAL_WINDOW_DAYS = 3
 
 EVAL_MAX_ROWS = 1_500_000
@@ -29,11 +31,15 @@ def fit_production_lookup() -> tuple[dict, dict, int]:
 
 
 def lookup_from_cells(cells: pd.DataFrame) -> dict:
-    """a lookup in the production shape, from binned counts"""
-    return {
-        key: histogram.medians_from_cells(cells, cols).rename("bias_sec")
-        for key, cols in LOOKUP_KEYS.items()
-    }
+    """a lookup in the production shape. thin stop cells drop out so the route median serves"""
+    built = {}
+    for key, cols in LOOKUP_KEYS.items():
+        medians = histogram.medians_from_cells(cells, cols).rename("bias_sec")
+        if key == "by_stop":
+            counts = histogram.counts_from_cells(cells, cols).reindex(medians.index)
+            medians = medians[counts >= MIN_STOP_SAMPLES]
+        built[key] = medians
+    return built
 
 
 def eval_stride(total_rows: int, max_rows: int = EVAL_MAX_ROWS) -> int:
