@@ -20,6 +20,9 @@ VEHICLES_POLL_SECONDS = float(os.getenv("VEHICLES_POLL_SECONDS", "5"))
 
 HISTORY_API_URL = os.getenv("HISTORY_API_URL", "http://127.0.0.1:8000")
 
+S3_ARCHIVE_BUCKET = os.getenv("S3_ARCHIVE_BUCKET", "").strip()
+S3_ARCHIVE_PREFIX = os.getenv("S3_ARCHIVE_PREFIX", "prediction_outcomes").strip("/")
+
 REQUEST_TIMEOUT = 15
 MAX_BACKOFF_SECONDS = 60
 

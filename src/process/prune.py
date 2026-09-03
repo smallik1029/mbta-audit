@@ -1,8 +1,8 @@
 """delete rows past their retention window and give the space back"""
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from src import db
-from src.process import histogram
+from src.process import archive, histogram
 
 RAW_RETENTION_DAYS = 14
 OUTCOMES_RETENTION_DAYS = 35
@@ -45,15 +45,29 @@ def prune_raw(now: datetime | None = None) -> dict:
     return {"prediction_snapshots": pred_deleted, "vehicle_snapshots": veh_deleted}
 
 
+def outcomes_cutoff(now: datetime, archived: date | None) -> datetime | None:
+    """retention, held back to whatever archiving has copied out while archiving is on"""
+    retention = now - timedelta(days=OUTCOMES_RETENTION_DAYS)
+    if not archive.enabled():
+        return retention
+    if archived is None:
+        return None
+    return min(retention, datetime.combine(archived + timedelta(days=1), time.min, tzinfo=UTC))
+
+
 def prune_outcomes(now: datetime | None = None) -> dict:
     """outcomes only. the histogram backs the model, so it retires on its own schedule"""
     now = now or datetime.now(UTC)
-    cutoff = (now - timedelta(days=OUTCOMES_RETENTION_DAYS)).isoformat()
+    cutoff = outcomes_cutoff(now, archive.archived_through())
+    if cutoff is None:
+        return {"prediction_outcomes": 0, "held_for_archive": True}
     conn = db.connect()
-    cur = conn.execute("DELETE FROM prediction_outcomes WHERE observed_at < ?", (cutoff,))
+    cur = conn.execute(
+        "DELETE FROM prediction_outcomes WHERE observed_at < ?", (cutoff.isoformat(),)
+    )
     deleted = cur.rowcount
     conn.commit()
-    return {"prediction_outcomes": deleted}
+    return {"prediction_outcomes": deleted, "held_for_archive": False}
 
 
 def prune_histogram(now: datetime | None = None) -> int:
@@ -77,6 +91,7 @@ def main() -> None:
     now = datetime.now(UTC)
     started = record_collection_start()
     raw_deleted = prune_raw(now)
+    archived = archive.run((now - timedelta(days=OUTCOMES_RETENTION_DAYS)).date())
     outcomes_deleted = prune_outcomes(now)
     histogram_deleted = prune_histogram(now)
 
@@ -84,8 +99,16 @@ def main() -> None:
     print(f"pruned {raw_deleted['prediction_snapshots']:,} prediction_snapshots, "
           f"{raw_deleted['vehicle_snapshots']:,} vehicle_snapshots rows "
           f"(older than {RAW_RETENTION_DAYS} days)")
-    print(f"pruned {outcomes_deleted['prediction_outcomes']:,} prediction_outcomes rows "
-          f"(older than {OUTCOMES_RETENTION_DAYS} days)")
+    if archived["enabled"]:
+        print(f"archived {archived['rows']:,} outcome rows to s3 "
+              f"across {archived['days']} whole day(s)")
+    else:
+        print("s3 archiving is off, set S3_ARCHIVE_BUCKET to turn it on")
+    if outcomes_deleted["held_for_archive"]:
+        print("holding prediction_outcomes until a full day has reached s3")
+    else:
+        print(f"pruned {outcomes_deleted['prediction_outcomes']:,} prediction_outcomes rows "
+              f"(older than {OUTCOMES_RETENTION_DAYS} days)")
     if HISTOGRAM_RETENTION_DAYS is None:
         print("outcome_histogram kept in full, it backs the model and the observation counts")
     else:
