@@ -103,7 +103,7 @@ def get_corrected_predictions(stop_id: str, route_id: str | None, lookup: dict) 
             bias, level, n = 0.0, "uncorrected", 0
         else:
             bias, level, n = lookup_bias(lookup, this_route, stop_id, bucket)
-        corrected_lead_sec = lead_sec - bias
+        corrected_lead_sec = max(lead_sec - bias, 0.0)
 
         results.append({
             "route_id": this_route,

@@ -196,7 +196,7 @@ def _compute_train_positions(
             bias, confidence, sample_size = 0.0, "uncorrected", 0
         else:
             bias, confidence, sample_size = lookup_bias(lookup, route_id, pred["stop_id"], bucket)
-        corrected_lead_sec = pred["lead_sec"] - bias
+        corrected_lead_sec = max(pred["lead_sec"] - bias, 0.0)
 
         raw_frac = 1 - min(max(pred["lead_sec"] / leg["leg_duration_sec"], 0), 1)
         corrected_frac = 1 - min(max(corrected_lead_sec / leg["leg_duration_sec"], 0), 1)
