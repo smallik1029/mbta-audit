@@ -92,6 +92,9 @@
     padding: 0.1rem 0.5rem; margin-left: 0.45rem; white-space: nowrap;
   }
   .caption { color: var(--muted); font-size: 0.8rem; margin: 0.9rem 0 0; line-height: 1.5; }
+  .acc-table th [data-tip] {
+    border-bottom: 1px dotted #5a6172; cursor: help; padding-bottom: 1px;
+  }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px; }
   .stat { padding: 1rem 0.2rem; }
   .stat .label { color: var(--muted); font-size: 0.8rem; margin-bottom: 0.3rem; }
@@ -106,6 +109,7 @@
     padding: 0.5rem 0.7rem; font-size: 0.82rem; line-height: 1.45;
     box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5); white-space: nowrap;
   }
+  .baltip.wide { width: max-content; max-width: 250px; white-space: normal; font-weight: 400; }
   .baltip .when { font-weight: 600; margin-bottom: 0.1rem; }
   .baltip .what { color: var(--muted); }
   .baltip::after {
@@ -113,6 +117,10 @@
     width: 8px; height: 8px; background: #1f232c;
     border-right: 1px solid #3a3f4b; border-bottom: 1px solid #3a3f4b;
     transform: rotate(45deg);
+  }
+  .baltip.below::after {
+    top: -5px; bottom: auto; border: none;
+    border-left: 1px solid #3a3f4b; border-top: 1px solid #3a3f4b;
   }
   @media (max-width: 640px) {
     .component { flex-wrap: wrap; gap: 0.5rem; }
@@ -140,7 +148,12 @@
     <div class="card" style="padding: 0.4rem 1.2rem 1.2rem;">
       <table class="acc-table">
         <thead>
-          <tr><th>Route</th><th>MBTA's error</th><th>Our error</th><th>Improvement</th></tr>
+          <tr>
+            <th><span data-tip="One row per line. The four Green Line branches are measured separately because they behave differently. A line tagged not applied is served with MBTA's own time.">Route</span></th>
+            <th><span data-tip="How far off the MBTA's own prediction was from the real arrival. This is the middle value, so half of their predictions were closer and half were further off.">MBTA's error</span></th>
+            <th><span data-tip="The same measurement, but for our corrected estimate. A smaller number here means we landed closer to the real arrival than the MBTA did.">Our error</span></th>
+            <th><span data-tip="How much of the MBTA's error our correction removes. Negative means their time was closer than ours, so we show theirs instead.">Improvement</span></th>
+          </tr>
         </thead>
         <tbody id="accuracyBody"></tbody>
       </table>
@@ -186,29 +199,63 @@ function showUnavailable() {
   banner.className = 'banner down';
 }
 
-function positionTip(bar) {
+function positionTip(el) {
   baltip.style.display = 'block';
-  const b = bar.getBoundingClientRect();
+  const b = el.getBoundingClientRect();
   const t = baltip.getBoundingClientRect();
   let left = b.left + b.width / 2 - t.width / 2 + window.scrollX;
   left = Math.max(8, Math.min(left, document.documentElement.clientWidth - t.width - 8));
   baltip.style.left = Math.round(left) + 'px';
-  baltip.style.top = Math.round(b.top - t.height - 9 + window.scrollY) + 'px';
+  if (b.top - t.height - 9 < 4) {
+    baltip.classList.add('below');
+    baltip.style.top = Math.round(b.bottom + 9 + window.scrollY) + 'px';
+  } else {
+    baltip.classList.remove('below');
+    baltip.style.top = Math.round(b.top - t.height - 9 + window.scrollY) + 'px';
+  }
+}
+
+function hideTip() {
+  baltip.style.display = 'none';
+}
+
+function showBarTip(bar) {
+  baltip.className = 'baltip';
+  baltip.innerHTML = '<div class="when">' + prettyDate(bar.dataset.date) + '</div>' +
+    '<div class="what">' + bar.dataset.detail + '</div>';
+  positionTip(bar);
+}
+
+function showTextTip(el) {
+  baltip.className = 'baltip wide';
+  baltip.textContent = el.dataset.tip;
+  positionTip(el);
 }
 
 document.addEventListener('mouseover', (e) => {
   const bar = e.target.closest('.bar');
-  if (!bar) return;
-  baltip.innerHTML = '<div class="when">' + prettyDate(bar.dataset.date) + '</div>' +
-    '<div class="what">' + bar.dataset.detail + '</div>';
-  positionTip(bar);
+  if (bar) {
+    showBarTip(bar);
+    return;
+  }
+  const labelled = e.target.closest('[data-tip]');
+  if (labelled) showTextTip(labelled);
 });
 
 document.addEventListener('mouseout', (e) => {
-  if (e.target.closest('.bar')) baltip.style.display = 'none';
+  if (e.target.closest('.bar') || e.target.closest('[data-tip]')) hideTip();
 });
 
-window.addEventListener('scroll', () => { baltip.style.display = 'none'; }, { passive: true });
+document.addEventListener('click', (e) => {
+  const labelled = e.target.closest('[data-tip]');
+  if (labelled) {
+    showTextTip(labelled);
+    return;
+  }
+  hideTip();
+});
+
+window.addEventListener('scroll', hideTip, { passive: true });
 
 fetch('/api/status')
   .then(r => r.json())

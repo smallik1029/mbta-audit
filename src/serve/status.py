@@ -93,7 +93,7 @@ def _schedule(now):
     if next_train <= now:
         next_train += timedelta(days=1)
     jobs = [
-        ("Hourly pipeline", _state("last_hourly_run"), (now + timedelta(hours=1)).floor("h")),
+        ("Hourly data update", _state("last_hourly_run"), (now + timedelta(hours=1)).floor("h")),
         ("Daily model train", _state("last_train_run"), next_train),
     ]
     return [
@@ -234,7 +234,7 @@ def build_status(model_mtime: float | None, observations: int, model_cells: int)
 
     if last_outcome is None or last_prediction is None:
         components.append({
-            "name": "Processing pipeline",
+            "name": "Data processing",
             "state": "down",
             "detail": "nothing processed yet",
         })
@@ -242,7 +242,7 @@ def build_status(model_mtime: float | None, observations: int, model_cells: int)
         lag = (last_prediction - last_outcome).total_seconds()
         state = "operational" if lag <= PIPELINE_LAG_WARN_SEC else "degraded"
         components.append({
-            "name": "Processing pipeline",
+            "name": "Data processing",
             "state": state,
             "detail": f"caught up to within {_duration_text(lag)}",
         })
@@ -292,7 +292,7 @@ def build_status(model_mtime: float | None, observations: int, model_cells: int)
                 "days": _collection_history(now, first_seen),
             },
             {
-                "title": "Processing pipeline",
+                "title": "Data processing",
                 "note": "four service hours sampled per day, checking whether processed data landed in each",
                 "days": _processing_history(now, first_seen),
             },
