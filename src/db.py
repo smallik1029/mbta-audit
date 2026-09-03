@@ -4,6 +4,8 @@ import threading
 
 from src import config
 
+COLLECTION_START_KEY = "collection_started_at"
+
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
 

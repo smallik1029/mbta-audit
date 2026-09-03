@@ -215,7 +215,9 @@ def build_status(model_mtime: float | None, observations: int, model_cells: int)
 
     last_prediction = _ts(_scalar("SELECT MAX(observed_at) FROM prediction_snapshots"))
     last_outcome = _ts(_scalar("SELECT MAX(observed_at) FROM prediction_outcomes"))
-    first_seen = _ts(_scalar("SELECT MIN(observed_at) FROM prediction_snapshots"))
+    first_seen = _state(db.COLLECTION_START_KEY) or _ts(
+        _scalar("SELECT MIN(observed_at) FROM prediction_snapshots")
+    )
     now_local = now.tz_convert(LOCAL_TZ)
 
     components = []
