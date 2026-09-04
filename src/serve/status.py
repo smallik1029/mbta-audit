@@ -124,7 +124,7 @@ def _accuracy(now):
             "improvement_pct": r["improvement_pct"],
             "applied": r["route_id"] not in UNCORRECTED_ROUTES,
         }
-        for r in report.get("by_route", [])
+        for r in report.get("by_route_served") or report.get("by_route", [])
     ]
     routes.sort(key=lambda r: r["improvement_pct"], reverse=True)
 
@@ -132,7 +132,8 @@ def _accuracy(now):
     return {
         "measured_on": _date_text(measured.tz_convert(LOCAL_TZ)) if measured else "an unknown date",
         "measured_age": _age_text((now - measured).total_seconds()) if measured else "",
-        "test_rows": report.get("test_rows"),
+        "test_rows": report.get("served_rows") or report.get("test_rows"),
+        "max_lead_min": report.get("served_max_lead_min"),
         "overall": report.get("overall"),
         "routes": routes,
     }

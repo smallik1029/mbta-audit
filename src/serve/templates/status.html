@@ -304,8 +304,10 @@ fetch('/api/status')
         : '';
       document.getElementById('accuracyCaption').textContent = overallLine +
         'Median absolute error on ' + d.accuracy.test_rows.toLocaleString() +
-        ' held-out rows the model was never fit on, measured ' + d.accuracy.measured_on +
-        ' (' + d.accuracy.measured_age + ').';
+        ' held-out rows the model was never fit on' +
+        (d.accuracy.max_lead_min ? ', counting only the predictions the site serves, under ' +
+          d.accuracy.max_lead_min + ' minutes out' : '') +
+        '. Measured ' + d.accuracy.measured_on + ' (' + d.accuracy.measured_age + ').';
     }
 
     document.getElementById('series').innerHTML = d.series.map(s => {

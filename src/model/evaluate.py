@@ -10,6 +10,7 @@ import pandas as pd
 
 from src import config
 from src.analysis.error_curves import HEADLINE_TARGETS_MIN, HEADLINE_TOLERANCE_MIN
+from src.model.features import TOP_LEAD_BUCKET
 from src.model.features import apply_correction as correct
 
 
@@ -85,7 +86,22 @@ def plot_comparison(table: pd.DataFrame, out_path: str) -> None:
     plt.close(fig)
 
 
-def write_report(test, overall: dict, by_route) -> None:
+def route_records(by_route) -> list:
+    """the per-route rows the status page reads"""
+    return [
+        {
+            "route_id": row["route_id"],
+            "n": int(row["n"]),
+            "baseline_sec": float(row["baseline_median_abs_error_sec"]),
+            "corrected_sec": float(row["corrected_median_abs_error_sec"]),
+            "improvement_pct": float(row["improvement_pct"]),
+        }
+        for _, row in by_route.iterrows()
+        if row["improvement_pct"] is not None
+    ]
+
+
+def write_report(test, overall: dict, by_route, by_route_served, served_rows: int) -> None:
     """dated json the status page reads, so a stale number announces itself"""
     report = {
         "measured_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -93,17 +109,10 @@ def write_report(test, overall: dict, by_route) -> None:
         "test_start": str(test["observed_at"].min()),
         "test_end": str(test["observed_at"].max()),
         "overall": overall,
-        "by_route": [
-            {
-                "route_id": row["route_id"],
-                "n": int(row["n"]),
-                "baseline_sec": float(row["baseline_median_abs_error_sec"]),
-                "corrected_sec": float(row["corrected_median_abs_error_sec"]),
-                "improvement_pct": float(row["improvement_pct"]),
-            }
-            for _, row in by_route.iterrows()
-            if row["improvement_pct"] is not None
-        ],
+        "served_rows": served_rows,
+        "served_max_lead_min": TOP_LEAD_BUCKET,
+        "by_route": route_records(by_route),
+        "by_route_served": route_records(by_route_served),
     }
     out = config.ROOT / "model_artifacts" / "evaluation.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -132,14 +141,20 @@ def main() -> None:
     print(table.to_string(index=False))
 
     by_route = summarize_by_route(test, corrected_error)
-    print("\nBy route:")
+    print("\nBy route, every lead time:")
     print(by_route.to_string(index=False))
+
+    served = test["lead_bucket"] < TOP_LEAD_BUCKET
+    by_route_served = summarize_by_route(test[served], corrected_error[served])
+    print(f"\nBy route, only the {served.sum():,} rows the site serves "
+          f"(under {TOP_LEAD_BUCKET} min):")
+    print(by_route_served.to_string(index=False))
 
     write_report(test, {
         "baseline_sec": round(float(overall_baseline), 1),
         "corrected_sec": round(float(overall_corrected), 1),
         "improvement_pct": round(float(overall_improvement), 1),
-    }, by_route)
+    }, by_route, by_route_served, int(served.sum()))
 
     reports_dir = config.ROOT / "reports"
     reports_dir.mkdir(exist_ok=True)
