@@ -217,7 +217,7 @@ function deltaSpan(adjustmentSec) {
 function tooltipHtml(t, kind) {
   if (t.confidence === 'uncorrected') {
     return tooltipShell(t, t.raw_min, "MBTA's own time, unadjusted",
-      'Our correction measured worse than MBTA on this line, so we leave their number alone here.');
+      'Our correction does not reliably beat MBTA on this line, so we leave their number alone.');
   }
   if (t.confidence === 'out_of_range') {
     return tooltipShell(t, t.raw_min, "MBTA's official time",

@@ -399,7 +399,7 @@ goBtn.addEventListener('click', () => {
       const uncorrected = data.predictions.find(p => p.confidence === 'uncorrected');
       if (uncorrected) {
         routeNote.textContent = `We show MBTA's own time on the ${uncorrected.route_id} Line. ` +
-          `Our correction measured worse than leaving it alone when we tested it, so we don't apply it here.`;
+          `Our correction does not reliably beat their own time here, so we leave it alone.`;
         routeNote.style.display = 'block';
       }
 
@@ -419,8 +419,8 @@ goBtn.addEventListener('click', () => {
         tr.innerHTML = `<td colspan="4">${farTerm.length} more train${plural} ${LEAD_BUCKET_MAX_MIN}+ min out, ${tail}</td>`;
         tbody.appendChild(tr);
 
-        capNote.textContent = `Predictions ${LEAD_BUCKET_MAX_MIN}+ minutes out share one estimate. ` +
-          `MBTA's own predictions aren't precise that far ahead, so we don't try to be more specific than they are.`;
+        capNote.textContent = `Past ${LEAD_BUCKET_MAX_MIN} minutes we show MBTA's own time. ` +
+          `Their predictions aren't precise that far ahead and neither is our correction, so we don't guess.`;
         capNote.style.display = 'block';
       }
 
