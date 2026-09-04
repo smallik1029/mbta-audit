@@ -27,6 +27,7 @@ class PredictionCollector:
         items, observed_at = result
 
         rows = []
+        pending: dict[tuple[str, str], tuple] = {}
         for item in items:
             attrs = item.get("attributes") or {}
             trip_id = rel_id(item, "trip")
@@ -41,9 +42,9 @@ class PredictionCollector:
             key = (trip_id, stop_id)
             value = (arrival, departure, sched_rel)
             self.total_seen += 1
-            if self.last_seen.get(key) == value:
+            if pending.get(key, self.last_seen.get(key)) == value:
                 continue
-            self.last_seen[key] = value
+            pending[key] = value
 
             rows.append((
                 observed_at,
@@ -60,5 +61,6 @@ class PredictionCollector:
             ))
 
         written = db.insert_many("prediction_snapshots", COLUMNS, rows)
+        self.last_seen.update(pending)
         self.total_written += written
         return written

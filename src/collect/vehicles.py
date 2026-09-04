@@ -27,6 +27,7 @@ class VehicleCollector:
         items, observed_at = result
 
         rows = []
+        pending: dict[str, tuple] = {}
         for item in items:
             attrs = item.get("attributes") or {}
             vehicle_id = item.get("id")
@@ -40,9 +41,9 @@ class VehicleCollector:
             key = vehicle_id
             value = (status, stop_id, trip_id)
             self.total_seen += 1
-            if self.last_seen.get(key) == value:
+            if pending.get(key, self.last_seen.get(key)) == value:
                 continue
-            self.last_seen[key] = value
+            pending[key] = value
 
             rows.append((
                 observed_at,
@@ -59,5 +60,6 @@ class VehicleCollector:
             ))
 
         written = db.insert_many("vehicle_snapshots", COLUMNS, rows)
+        self.last_seen.update(pending)
         self.total_written += written
         return written

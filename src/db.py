@@ -29,14 +29,19 @@ def init_schema() -> None:
 
 
 def insert_many(table: str, columns: list[str], rows: list[tuple]) -> int:
+    """append rows, leaving nothing half applied when the write is refused"""
     if not rows:
         return 0
     placeholders = ",".join("?" * len(columns))
     sql = f"INSERT INTO {table} ({','.join(columns)}) VALUES ({placeholders})"
     conn = connect()
     with _lock:
-        conn.executemany(sql, rows)
-        conn.commit()
+        try:
+            conn.executemany(sql, rows)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
     return len(rows)
 
 
