@@ -95,6 +95,10 @@
   .acc-table th [data-tip] {
     border-bottom: 1px dotted #5a6172; cursor: help; padding-bottom: 1px;
   }
+  .stat .label[data-tip] {
+    display: inline-block; border-bottom: 1px dotted #5a6172;
+    cursor: help; padding-bottom: 1px;
+  }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px; }
   .stat { padding: 1rem 0.2rem; }
   .stat .label { color: var(--muted); font-size: 0.8rem; margin-bottom: 0.3rem; }
@@ -330,7 +334,10 @@ fetch('/api/status')
     }).join('');
 
     document.getElementById('stats').innerHTML = d.stats.map(s => `
-      <div class="stat"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>
+      <div class="stat">
+        <div class="label"${s.tip ? ` data-tip="${s.tip}"` : ''}>${s.label}</div>
+        <div class="value">${s.value}</div>
+      </div>
     `).join('');
 
     document.getElementById('footnote').textContent =

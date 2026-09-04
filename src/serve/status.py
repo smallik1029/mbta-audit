@@ -1,6 +1,5 @@
 """health facts for the status page, built only from cheap indexed lookups"""
 import json
-import shutil
 from datetime import timedelta
 
 import pandas as pd
@@ -263,16 +262,19 @@ def build_status(model_mtime: float | None, observations: int, model_cells: int)
 
     components.append({"name": "Website", "state": "operational", "detail": "serving this page"})
 
-    usage = shutil.disk_usage(config.DB_PATH.parent)
     db_bytes = config.DB_PATH.stat().st_size if config.DB_PATH.exists() else 0
     since_text = _date_text(first_seen.tz_convert(LOCAL_TZ)) if first_seen else "n/a"
 
     stats = [
         {"label": "Observations behind the model", "value": f"{observations:,}"},
-        {"label": "Stop and lead-time cells", "value": f"{model_cells:,}"},
+        {
+            "label": "Separate corrections learned",
+            "value": f"{model_cells:,}",
+            "tip": "One learned correction for every pairing of a stop with how far ahead "
+                   "the train is, so the model is thousands of small rules rather than one.",
+        },
         {"label": "Collecting since", "value": since_text},
         {"label": "Database size", "value": f"{db_bytes / 1e9:.1f} GB"},
-        {"label": "Disk free", "value": f"{usage.free / 1e9:.0f} GB of {usage.total / 1e9:.0f} GB"},
     ]
 
     overall = "operational"
