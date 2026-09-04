@@ -2,6 +2,7 @@
 import pandas as pd
 
 from src.model import train
+from src.model.features import TOP_LEAD_BUCKET
 from src.serve import correction
 
 CELL_COLS = ["route_id", "stop_id", "lead_bucket", "error_bin", "n"]
@@ -91,3 +92,36 @@ def test_a_normal_bias_still_shifts_the_time(monkeypatch):
 
     assert results[0]["confidence"] == "stop"
     assert results[0]["corrected_min"] > results[0]["raw_min"]
+
+
+def _stop_lookup(bucket, bias):
+    return {
+        "by_stop": pd.DataFrame([{
+            "route_id": "Orange", "stop_id": "S1",
+            "lead_bucket": bucket, "bias_sec": bias, "n": 9000,
+        }]),
+        "by_route": pd.DataFrame(columns=["route_id", "lead_bucket", "bias_sec", "n"]),
+        "by_bucket": pd.DataFrame(columns=["lead_bucket", "bias_sec", "n"]),
+    }
+
+
+def test_the_top_bucket_is_never_corrected():
+    """it pools a 30 minute prediction with a three hour one, so its median means nothing"""
+    lookup = _stop_lookup(TOP_LEAD_BUCKET, -128.0)
+
+    assert correction.lookup_bias(lookup, "Orange", "S1", TOP_LEAD_BUCKET) == (
+        0.0, "out_of_range", 0,
+    )
+
+
+def test_the_bucket_below_the_top_is_corrected_normally():
+    lookup = _stop_lookup(TOP_LEAD_BUCKET - 3, -104.0)
+
+    bias, confidence, n = correction.lookup_bias(lookup, "Orange", "S1", TOP_LEAD_BUCKET - 3)
+
+    assert (bias, confidence, n) == (-104.0, "stop", 9000)
+
+
+def test_orange_is_corrected_like_every_other_line():
+    """measured positive at every bucket the site serves, so it is no longer an exception"""
+    assert "Orange" not in correction.UNCORRECTED_ROUTES

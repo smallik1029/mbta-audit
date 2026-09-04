@@ -3,6 +3,7 @@ import pandas as pd
 
 LEAD_BUCKET_WIDTH_MIN = 3
 LEAD_BUCKET_MAX_MIN = 30
+TOP_LEAD_BUCKET = LEAD_BUCKET_MAX_MIN - (LEAD_BUCKET_MAX_MIN % LEAD_BUCKET_WIDTH_MIN)
 
 
 def add_lead_bucket(df: pd.DataFrame) -> pd.DataFrame:

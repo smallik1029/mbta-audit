@@ -362,7 +362,8 @@ goBtn.addEventListener('click', () => {
       }
 
       function estimateCell(p) {
-        if (p.confidence === 'uncorrected' || p.confidence === 'none') {
+        if (p.confidence === 'uncorrected' || p.confidence === 'none'
+            || p.confidence === 'out_of_range') {
           return `<span class="muted-cell">MBTA's time, unchanged</span>`;
         }
         const adjClass = p.adjustment_sec > 0 ? 'adj-later' : (p.adjustment_sec < 0 ? 'adj-earlier' : '');
@@ -373,6 +374,9 @@ goBtn.addEventListener('click', () => {
       function basisCell(p) {
         if (p.confidence === 'uncorrected') {
           return `<span class="muted-cell">not corrected</span>`;
+        }
+        if (p.confidence === 'out_of_range') {
+          return `<span class="muted-cell">Too far ahead to correct reliably</span>`;
         }
         if (p.confidence === 'none') {
           return `<span class="muted-cell">No history for this stop yet</span>`;
@@ -407,8 +411,8 @@ goBtn.addEventListener('click', () => {
       if (farTerm.length) {
         const rep = farTerm[0];
         const plural = farTerm.length > 1 ? 's are' : ' is';
-        const tail = rep.confidence === 'uncorrected'
-          ? "we show MBTA's own time on this line"
+        const tail = rep.adjustment_sec === 0
+          ? "we show MBTA's own time this far ahead"
           : `we consistently expect these ${directionText(rep.adjustment_sec)} than MBTA's estimate`;
         const tr = document.createElement('tr');
         tr.className = 'cap-row';

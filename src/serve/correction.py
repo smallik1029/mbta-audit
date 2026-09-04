@@ -5,11 +5,12 @@ import pandas as pd
 import requests
 
 from src import config, db
+from src.model.features import TOP_LEAD_BUCKET
 
 ARTIFACTS_DIR = config.ROOT / "model_artifacts"
 LEAD_BUCKET_WIDTH_MIN = 3
 LEAD_BUCKET_MAX_MIN = 30
-UNCORRECTED_ROUTES = frozenset({"Orange"})
+UNCORRECTED_ROUTES = frozenset()
 
 
 def load_lookup(artifacts_dir=None) -> dict:
@@ -31,6 +32,9 @@ def lead_bucket(lead_time_sec: float) -> int:
 
 def lookup_bias(lookup: dict, route_id: str, stop_id: str, bucket: int) -> tuple[float, str, int]:
     """returns (bias_sec, confidence, sample_count)"""
+    if bucket >= TOP_LEAD_BUCKET:
+        return 0.0, "out_of_range", 0
+
     by_stop = lookup["by_stop"]
     hit = by_stop[
         (by_stop.route_id == route_id) & (by_stop.stop_id == stop_id) & (by_stop.lead_bucket == bucket)

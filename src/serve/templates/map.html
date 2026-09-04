@@ -219,6 +219,10 @@ function tooltipHtml(t, kind) {
     return tooltipShell(t, t.raw_min, "MBTA's own time, unadjusted",
       'Our correction measured worse than MBTA on this line, so we leave their number alone here.');
   }
+  if (t.confidence === 'out_of_range') {
+    return tooltipShell(t, t.raw_min, "MBTA's official time",
+      'This far ahead we show MBTA\'s own time. Our correction is not reliable past 30 minutes.');
+  }
   if (t.confidence === 'none') {
     return tooltipShell(t, t.raw_min, "MBTA's official time",
       "No history for this stop yet, so we're showing MBTA's time unchanged.");
