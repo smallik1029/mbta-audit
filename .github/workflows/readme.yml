@@ -1,0 +1,31 @@
+name: Refresh README figures
+
+on:
+  schedule:
+    - cron: "0 12 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Render the generated regions
+        run: python scripts/render_readme.py
+      - name: Commit if the figures moved
+        run: |
+          if git diff --quiet README.md; then
+            echo "figures unchanged, nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "refresh the measured figures"
+          git push

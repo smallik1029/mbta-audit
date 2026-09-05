@@ -136,6 +136,7 @@ def _accuracy(now):
         "test_rows": report.get("served_rows") or report.get("test_rows"),
         "max_lead_min": report.get("served_max_lead_min"),
         "overall": report.get("overall_served") or report.get("overall"),
+        "overall_scope": "served" if report.get("overall_served") else "all_lead_times",
         "routes": routes,
     }
 
