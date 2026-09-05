@@ -101,7 +101,19 @@ def route_records(by_route) -> list:
     ]
 
 
-def write_report(test, overall: dict, by_route, by_route_served, served_rows: int) -> None:
+def overall_stats(test, corrected_error) -> dict:
+    """baseline and corrected medians for one population"""
+    baseline = float(test["error_sec"].abs().median())
+    corrected = float(corrected_error.abs().median())
+    return {
+        "baseline_sec": round(baseline, 1),
+        "corrected_sec": round(corrected, 1),
+        "improvement_pct": round(100 * (1 - corrected / baseline), 1),
+    }
+
+
+def write_report(test, overall: dict, overall_served: dict, by_route, by_route_served,
+                 served_rows: int) -> None:
     """dated json the status page reads, so a stale number announces itself"""
     report = {
         "measured_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -109,6 +121,7 @@ def write_report(test, overall: dict, by_route, by_route_served, served_rows: in
         "test_start": str(test["observed_at"].min()),
         "test_end": str(test["observed_at"].max()),
         "overall": overall,
+        "overall_served": overall_served,
         "served_rows": served_rows,
         "served_max_lead_min": TOP_LEAD_BUCKET,
         "by_route": route_records(by_route),
@@ -129,12 +142,10 @@ def main() -> None:
     print(f"fallback usage: {n_missing_stop:,} rows fell back from stop->route level, "
           f"{n_missing_route:,} rows fell back further to route->global level")
 
-    overall_baseline = test["error_sec"].abs().median()
-    overall_corrected = corrected_error.abs().median()
-    overall_improvement = 100 * (1 - overall_corrected / overall_baseline)
-    print(f"\nOverall: baseline median |error| = {overall_baseline:.1f}s, "
-          f"corrected = {overall_corrected:.1f}s "
-          f"({overall_improvement:.1f}% improvement)")
+    overall = overall_stats(test, corrected_error)
+    print(f"\nOverall, every lead time: {overall['baseline_sec']:.1f}s -> "
+          f"{overall['corrected_sec']:.1f}s "
+          f"({overall['improvement_pct']:.1f}% improvement)")
 
     table = summarize(test, corrected_error)
     print("\nBy lead time:")
@@ -145,16 +156,16 @@ def main() -> None:
     print(by_route.to_string(index=False))
 
     served = test["lead_bucket"] < TOP_LEAD_BUCKET
+    overall_served = overall_stats(test[served], corrected_error[served])
     by_route_served = summarize_by_route(test[served], corrected_error[served])
     print(f"\nBy route, only the {served.sum():,} rows the site serves "
-          f"(under {TOP_LEAD_BUCKET} min):")
+          f"(under {TOP_LEAD_BUCKET} min), overall "
+          f"{overall_served['baseline_sec']:.1f}s -> {overall_served['corrected_sec']:.1f}s "
+          f"({overall_served['improvement_pct']:.1f}%):")
     print(by_route_served.to_string(index=False))
 
-    write_report(test, {
-        "baseline_sec": round(float(overall_baseline), 1),
-        "corrected_sec": round(float(overall_corrected), 1),
-        "improvement_pct": round(float(overall_improvement), 1),
-    }, by_route, by_route_served, int(served.sum()))
+    write_report(test, overall, overall_served, by_route, by_route_served,
+                 int(served.sum()))
 
     reports_dir = config.ROOT / "reports"
     reports_dir.mkdir(exist_ok=True)
