@@ -13,7 +13,7 @@ from src.serve.live_map import (
     load_shapes,
     load_stations,
 )
-from src.serve.status import build_status
+from src.serve.status import build_accuracy, build_status
 
 MAP_ROUTES = ["Red", "Orange", "Blue", "Green-B", "Green-C", "Green-D", "Green-E"]
 
@@ -88,16 +88,49 @@ def status_page():
     return render_template("status.html")
 
 
+@app.route("/accuracy")
+def accuracy_page():
+    return render_template("accuracy.html")
+
+
 @app.route("/api/status")
 def api_status():
     try:
-        table = lookup()
-        observations = int(table["by_bucket"]["n"].sum())
-        cells = int(len(table["by_stop"]))
-        payload = build_status(_newest_csv_mtime(ARTIFACTS_DIR), observations, cells)
+        payload = build_status(_newest_csv_mtime(ARTIFACTS_DIR))
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
     return jsonify(payload)
+
+
+def _accuracy_payload() -> dict:
+    table = lookup()
+    observations = int(table["by_bucket"]["n"].sum())
+    cells = int(len(table["by_stop"]))
+    return build_accuracy(observations, cells)
+
+
+@app.route("/api/accuracy")
+def api_accuracy():
+    try:
+        payload = _accuracy_payload()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
+    return jsonify(payload)
+
+
+@app.route("/api/badge")
+def api_badge():
+    """shields.io endpoint so the readme badge never goes stale"""
+    try:
+        overall = (_accuracy_payload()["accuracy"] or {}).get("overall")
+    except Exception:
+        overall = None
+    if not overall:
+        return jsonify({"schemaVersion": 1, "label": "accuracy vs MBTA",
+                        "message": "unavailable", "color": "lightgrey"})
+    return jsonify({"schemaVersion": 1, "label": "accuracy vs MBTA",
+                    "message": f"+{overall['improvement_pct']:.1f}%",
+                    "color": "brightgreen"})
 
 
 @app.route("/api/stations")

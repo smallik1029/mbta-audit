@@ -22,6 +22,8 @@ CACHE_SECONDS = 60
 
 _cache = None
 _cache_at = None
+_accuracy_cache = None
+_accuracy_cache_at = None
 
 
 def _scalar(sql: str):
@@ -133,7 +135,7 @@ def _accuracy(now):
         "measured_age": _age_text((now - measured).total_seconds()) if measured else "",
         "test_rows": report.get("served_rows") or report.get("test_rows"),
         "max_lead_min": report.get("served_max_lead_min"),
-        "overall": report.get("overall"),
+        "overall": report.get("overall_served") or report.get("overall"),
         "routes": routes,
     }
 
@@ -207,7 +209,32 @@ def _processing_history(now, first_seen):
     return days
 
 
-def build_status(model_mtime: float | None, observations: int, model_cells: int) -> dict:
+def build_accuracy(observations: int, model_cells: int) -> dict:
+    """how well the model measured and what backs it, kept off the health page"""
+    global _accuracy_cache, _accuracy_cache_at
+    now = pd.Timestamp.now(tz="UTC")
+    if _accuracy_cache is not None:
+        if (now - _accuracy_cache_at).total_seconds() < CACHE_SECONDS:
+            return _accuracy_cache
+
+    payload = {
+        "generated_at": _datetime_text(now.tz_convert(LOCAL_TZ)),
+        "accuracy": _accuracy(now),
+        "stats": [
+            {"label": "Observations behind the model", "value": f"{observations:,}"},
+            {
+                "label": "Separate corrections learned",
+                "value": f"{model_cells:,}",
+                "tip": "One learned correction for every pairing of a stop with how far ahead "
+                   "the train is, so the model is thousands of small rules rather than one.",
+            },
+        ],
+    }
+    _accuracy_cache, _accuracy_cache_at = payload, now
+    return payload
+
+
+def build_status(model_mtime: float | None) -> dict:
     global _cache, _cache_at
     now = pd.Timestamp.now(tz="UTC")
     if _cache is not None and (now - _cache_at).total_seconds() < CACHE_SECONDS:
@@ -266,13 +293,6 @@ def build_status(model_mtime: float | None, observations: int, model_cells: int)
     since_text = _date_text(first_seen.tz_convert(LOCAL_TZ)) if first_seen else "n/a"
 
     stats = [
-        {"label": "Observations behind the model", "value": f"{observations:,}"},
-        {
-            "label": "Separate corrections learned",
-            "value": f"{model_cells:,}",
-            "tip": "One learned correction for every pairing of a stop with how far ahead "
-                   "the train is, so the model is thousands of small rules rather than one.",
-        },
         {"label": "Collecting since", "value": since_text},
         {"label": "Database size", "value": f"{db_bytes / 1e9:.1f} GB"},
     ]
@@ -288,7 +308,6 @@ def build_status(model_mtime: float | None, observations: int, model_cells: int)
         "generated_at": _datetime_text(now_local),
         "components": components,
         "schedule": _schedule(now),
-        "accuracy": _accuracy(now),
         "stats": stats,
         "series": [
             {

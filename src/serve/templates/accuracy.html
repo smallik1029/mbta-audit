@@ -135,20 +135,27 @@
 <nav class="topnav">
   <a href="/">Live Map</a>
   <a href="/corrector">Single-Stop Lookup</a>
-  <a href="/accuracy">Accuracy</a>
-  <a href="/status" class="active">Status</a>
+  <a href="/accuracy" class="active">Accuracy</a>
+  <a href="/status">Status</a>
 </nav>
 <div class="wrap">
-  <div class="banner" id="banner">Checking...</div>
   <p class="generated" id="generated"></p>
 
-  <div class="card" id="components"></div>
-
-  <h2>Scheduled jobs</h2>
-  <div class="card" id="schedule"></div>
-
-  <h2>Last 30 days</h2>
-  <div class="card" style="padding: 1.2rem;" id="series"></div>
+  <h2>Measured accuracy</h2>
+  <div class="card" style="padding: 0.4rem 1.2rem 1.2rem;">
+    <table class="acc-table">
+      <thead>
+        <tr>
+          <th><span data-tip="One row per line. The four Green Line branches are measured separately because they behave differently. A line tagged not applied is served with MBTA's own time.">Route</span></th>
+          <th><span data-tip="How far off the MBTA's own prediction was from the real arrival. This is the middle value, so half of their predictions were closer and half were further off.">MBTA's error</span></th>
+          <th><span data-tip="The same measurement, but for our corrected estimate. A smaller number here means we landed closer to the real arrival than the MBTA did.">Our error</span></th>
+          <th><span data-tip="How much of the MBTA's error our correction removes. Negative means their time was closer than ours, so we show theirs instead.">Improvement</span></th>
+        </tr>
+      </thead>
+      <tbody id="accuracyBody"></tbody>
+    </table>
+    <p class="caption" id="accuracyCaption"></p>
+  </div>
 
   <h2>By the numbers</h2>
   <div class="card"><div class="stats" id="stats"></div></div>
@@ -158,31 +165,11 @@
 <div class="baltip" id="baltip"></div>
 
 <script>
-const BANNER_TEXT = {
-  operational: 'All systems operational',
-  degraded: 'Partially degraded',
-  down: 'Service disruption',
-};
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const baltip = document.getElementById('baltip');
 
-function barClass(pct) {
-  if (pct === null) return 'bar nodata';
-  if (pct >= 99.5) return 'bar';
-  if (pct >= 75) return 'bar partial';
-  return 'bar bad';
-}
-
-function prettyDate(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  return MONTHS[m - 1] + ' ' + d + ', ' + y;
-}
-
 function showUnavailable() {
-  const banner = document.getElementById('banner');
-  banner.textContent = 'Status unavailable';
-  banner.className = 'banner down';
+  document.getElementById('accuracyCaption').textContent =
+    'Accuracy figures are unavailable right now.';
 }
 
 function positionTip(el) {
@@ -205,13 +192,6 @@ function hideTip() {
   baltip.style.display = 'none';
 }
 
-function showBarTip(bar) {
-  baltip.className = 'baltip';
-  baltip.innerHTML = '<div class="when">' + prettyDate(bar.dataset.date) + '</div>' +
-    '<div class="what">' + bar.dataset.detail + '</div>';
-  positionTip(bar);
-}
-
 function showTextTip(el) {
   baltip.className = 'baltip wide';
   baltip.textContent = el.dataset.tip;
@@ -219,17 +199,12 @@ function showTextTip(el) {
 }
 
 document.addEventListener('mouseover', (e) => {
-  const bar = e.target.closest('.bar');
-  if (bar) {
-    showBarTip(bar);
-    return;
-  }
   const labelled = e.target.closest('[data-tip]');
   if (labelled) showTextTip(labelled);
 });
 
 document.addEventListener('mouseout', (e) => {
-  if (e.target.closest('.bar') || e.target.closest('[data-tip]')) hideTip();
+  if (e.target.closest('[data-tip]')) hideTip();
 });
 
 document.addEventListener('click', (e) => {
@@ -243,51 +218,37 @@ document.addEventListener('click', (e) => {
 
 window.addEventListener('scroll', hideTip, { passive: true });
 
-fetch('/api/status')
+fetch('/api/accuracy')
   .then(r => r.json())
   .then(d => {
-    if (d.error) {
+    if (d.error || !d.accuracy || !d.accuracy.routes.length) {
       showUnavailable();
       return;
     }
-    const banner = document.getElementById('banner');
-    banner.textContent = BANNER_TEXT[d.overall] || d.overall;
-    banner.className = 'banner ' + (d.overall === 'operational' ? '' : d.overall);
-    document.getElementById('generated').textContent = 'Checked ' + d.generated_at + ', refreshed on load.';
+    document.getElementById('generated').textContent = 'Measured daily. Page loaded ' + d.generated_at + '.';
 
-    document.getElementById('components').innerHTML = d.components.map(c => `
-      <div class="component">
-        <span class="dot ${c.state === 'operational' ? '' : c.state}"></span>
-        <span class="name">${c.name}</span>
-        <span class="detail">${c.detail}</span>
-      </div>
-    `).join('');
-
-    document.getElementById('schedule').innerHTML = d.schedule.map(j => `
-      <div class="component">
-        <span class="name">${j.name}</span>
-        <span class="detail">last ran ${j.last}, next ${j.next}</span>
-      </div>
-    `).join('');
-
-    document.getElementById('series').innerHTML = d.series.map(s => {
-      const measured = s.days.filter(x => x.pct !== null);
-      const avg = measured.length
-        ? (measured.reduce((a, x) => a + x.pct, 0) / measured.length).toFixed(2) + '% over ' + measured.length + ' days'
-        : 'no history yet';
-      const bars = s.days.map(x => {
-        const pct = x.pct === null ? 'no data' : x.pct.toFixed(2) + '%';
-        return `<div class="${barClass(x.pct)}" data-date="${x.date}" data-detail="${pct}, ${x.detail}"></div>`;
-      }).join('');
-      return `
-        <div class="series">
-          <div class="series-head"><span class="title">${s.title}</span><span class="avg">${avg}</span></div>
-          <div class="bars">${bars}</div>
-          <div class="bars-legend"><span>30 days ago</span><span>Today</span></div>
-          <div class="series-note">${s.note}</div>
-        </div>
-      `;
+        document.getElementById('accuracyBody').innerHTML = d.accuracy.routes.map(r => {
+      const cls = r.improvement_pct >= 0 ? 'gain' : 'loss';
+      const sign = r.improvement_pct >= 0 ? '+' : '';
+      const tag = r.applied ? '' : '<span class="tag">not applied</span>';
+      return `<tr>
+        <td>${r.route_id}${tag}</td>
+        <td>${r.baseline_sec.toFixed(1)}s</td>
+        <td>${r.corrected_sec.toFixed(1)}s</td>
+        <td class="${cls}">${sign}${r.improvement_pct.toFixed(1)}%</td>
+      </tr>`;
     }).join('');
+    const o = d.accuracy.overall;
+    const overallLine = o
+      ? `Overall ${o.baseline_sec.toFixed(1)}s down to ${o.corrected_sec.toFixed(1)}s, ` +
+        `${o.improvement_pct >= 0 ? '+' : ''}${o.improvement_pct.toFixed(1)}%. `
+      : '';
+    document.getElementById('accuracyCaption').textContent = overallLine +
+      'Median absolute error on ' + d.accuracy.test_rows.toLocaleString() +
+      ' held-out rows the model was never fit on' +
+      (d.accuracy.max_lead_min ? ', counting only the predictions the site serves, under ' +
+        d.accuracy.max_lead_min + ' minutes out' : '') +
+      '. Measured ' + d.accuracy.measured_on + ' (' + d.accuracy.measured_age + ').';
 
     document.getElementById('stats').innerHTML = d.stats.map(s => `
       <div class="stat">
@@ -297,10 +258,10 @@ fetch('/api/status')
     `).join('');
 
     document.getElementById('footnote').textContent =
-      'These bars are measured from the data itself rather than from an external prober, so they ' +
-      'describe what was actually captured and processed. Overnight the MBTA runs no trains, which ' +
-      'is reported as idle rather than as an outage. The correction model and the website have no ' +
-      'retroactive history to draw on, so they show current state only.';
+      'Accuracy is remeasured after every nightly retrain, on a held-out slice of data the model ' +
+      'was never fit on. The split is chronological rather than random, and the test window is ' +
+      'removed from the training data before the evaluated model is built, so these figures ' +
+      'describe predictions the model had not seen.';
   })
   .catch(showUnavailable);
 </script>
