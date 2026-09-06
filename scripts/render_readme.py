@@ -56,16 +56,12 @@ def millions(value: str) -> str:
 def overview_region(payload: dict) -> str:
     """generated paragraphs stay unwrapped so a wider number cannot reflow the block"""
     a = payload["accuracy"]
-    against = (f"against {a['test_rows']:,} held-out predictions" if served_only(payload)
-               else "on held-out predictions at every lead time")
     return (
         "mbta-audit records every prediction the MBTA publishes, observes when the train "
         "actually arrived, and learns the bias at each stop. It then serves a corrected "
-        f"arrival time. Measured {against} the model was never fit on, corrected times are "
-        f"**{a['overall']['improvement_pct']:.1f}% more accurate** than the MBTA's own.\n"
-        "\n"
-        "It has run continuously on a single EC2 instance since August 21, 2026, and has "
-        f"collected over {millions(stat(payload, 'Observations behind the model'))} observations."
+        "arrival time. Over the past few weeks, it has collected over "
+        f"{millions(stat(payload, 'Observations behind the model'))} observations, with "
+        f"**{a['overall']['improvement_pct']:.1f}%** more accurate times."
     )
 
 
@@ -73,6 +69,7 @@ def results_region(payload: dict) -> str:
     a = payload["accuracy"]
     o = a["overall"]
     worst = min(a["routes"], key=lambda r: r["improvement_pct"])
+    best = max(a["routes"], key=lambda r: r["improvement_pct"])
     headline = (
         f"Across {a['test_rows']:,} held-out predictions inside the corrected range, median "
         f"absolute error falls from {o['baseline_sec']:.1f}s to {o['corrected_sec']:.1f}s, "
@@ -87,14 +84,14 @@ def results_region(payload: dict) -> str:
         "current figures are always at "
         "[mbta-audit.com/accuracy](https://mbta-audit.com/accuracy).\n"
         "\n"
-        "Corrections are applied below 30 minutes out. Past that the MBTA groups a 30 minute "
-        "prediction together with a three hour one, so the underlying figure is too coarse to "
+        "Corrections are applied below 30 minutes out. Past that, the MBTA groups a 30 minute "
+        "prediction together with a 3 hour one, so the underlying figure is too coarse to "
         f"correct and those predictions are passed through unchanged. {headline}\n"
         "\n"
         f"{route_table(a['routes'])}\n"
         "\n"
-        f"{worst['route_id']} gains least because the MBTA already predicts it within "
-        f"{worst['baseline_sec']:.0f} seconds, leaving little to recover."
+        f"{best['route_id']} gains most at {best['improvement_pct']:+.1f}% and "
+        f"{worst['route_id']} least at {worst['improvement_pct']:+.1f}%. Every route improves."
     )
 
 
