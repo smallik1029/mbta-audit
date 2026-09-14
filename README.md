@@ -10,7 +10,7 @@ Have you ever wondered: "Hey, the MBTA says that my train will be there in five 
 If you have, then mbta-audit.com is the tool for you.
 
 <!-- overview:start -->
-mbta-audit records every prediction the MBTA publishes, observes when the train actually arrived, and learns the bias at each stop. It then serves a corrected arrival time. Over the past few weeks, it has collected over 90 million observations, with **28.7%** more accurate times.
+mbta-audit records every prediction the MBTA publishes, observes when the train actually arrived, and learns the bias at each stop. It then serves a corrected arrival time. Over the past few weeks, it has collected over 103 million observations, with **28.5%** more accurate times.
 <!-- overview:end -->
 
 ## Features
@@ -31,7 +31,7 @@ mbta-audit records every prediction the MBTA publishes, observes when the train 
 ### Model
 
 <!-- model:start -->
-- 2,948 separate corrections, one per stop and lead-time bucket, rather than one global adjustment
+- 2,954 separate corrections, one per stop and lead-time bucket, rather than one global adjustment
 <!-- model:end -->
 - Trains on a pre-aggregated error histogram, roughly a tenfold reduction over raw rows
 - Chronological holdout with the test window subtracted from the training data bin by bin
@@ -99,21 +99,21 @@ normally and simply reports nowhere, and without `S3_ARCHIVE_BUCKET` archival is
 ## Results
 
 <!-- results:start -->
-Measured on Sep 11, 2026 and remeasured after every nightly retrain. The current figures are always at [mbta-audit.com/accuracy](https://mbta-audit.com/accuracy).
+Measured on Sep 14, 2026 and remeasured after every nightly retrain. The current figures are always at [mbta-audit.com/accuracy](https://mbta-audit.com/accuracy).
 
-Corrections are applied below 30 minutes out. Past that, the MBTA groups a 30 minute prediction together with a 3 hour one, so the underlying figure is too coarse to correct and those predictions are passed through unchanged. Across 177,163 held-out predictions inside the corrected range, median absolute error falls from 73.9s to 52.6s, a 28.7% improvement.
+Corrections are applied below 30 minutes out. Past that, the MBTA groups a 30 minute prediction together with a 3 hour one, so the underlying figure is too coarse to correct and those predictions are passed through unchanged. Across 182,225 held-out predictions inside the corrected range, median absolute error falls from 66.8s to 47.8s, a 28.5% improvement.
 
 | Route | MBTA | Corrected | Improvement |
 |---|---|---|---|
-| Red | 103.9s | 52.6s | +49.4% |
-| Green-D | 74.6s | 53.4s | +28.4% |
-| Green-B | 79.5s | 57.8s | +27.2% |
-| Orange | 32.3s | 23.5s | +27.2% |
-| Blue | 36.2s | 27.4s | +24.3% |
-| Green-E | 90.2s | 68.9s | +23.6% |
-| Green-C | 72.0s | 59.9s | +16.8% |
+| Red | 67.6s | 40.0s | +40.8% |
+| Green-B | 79.2s | 54.3s | +31.5% |
+| Blue | 31.7s | 22.2s | +29.9% |
+| Green-D | 69.7s | 50.6s | +27.4% |
+| Orange | 31.5s | 24.1s | +23.4% |
+| Green-E | 84.8s | 65.4s | +22.9% |
+| Green-C | 74.4s | 59.3s | +20.2% |
 
-Red gains most at +49.4% and Green-C least at +16.8%. Every route improves.
+Red gains most at +40.8% and Green-C least at +20.2%. Every route improves.
 <!-- results:end -->
 
 The split is chronological rather than random, and the shipped and evaluated lookups are
